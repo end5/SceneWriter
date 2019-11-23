@@ -4,8 +4,8 @@ definition	=
 concatenation	,
 termination	;
 alternation	|
-optional	[ ... ]
-repetition	{ ... }
+optional	[ ... ] - zero or one
+repetition	{ ... } - zero or more
 grouping	( ... )
 terminal string	" ... "
 terminal string	' ... '
@@ -14,6 +14,7 @@ special sequence	? ... ?
 exception	-
 
 String =        ? anything ?
+Character =     ? A-Za-z ?
 
 BracketOpen =   '['
 BracketClose =  ']'
@@ -22,26 +23,26 @@ Space =         ' '
 Newline =       '\n'
 Escape =        '\'
 Dot =           '.'
-Article =       'a' | 'A' | 'an' | 'aN' | 'An' | 'AN'
-Argument =      String - ( Dot , Space , Pipe , BracketClose , Newline )
+QuestionMark =  '?'
+Number =        '0' , '1' , '2' , '3' , '4' , '5' , '6' , '7' , '8' , '9'
 
+Decimal =       { Number } , Dot , { Number }
+Idenitifer =    Character , { Number | Character }
+Value =         Number | Decimal | ( String - ( Whitespace | Pipe | BracketClose ) )
+Whitespace =    { Space | Newline }
 
-ConcatAll = { FunctionBlock | ArticleBlock | TextBlock | ConcatAll }
+ConcatAll = { EvalBlock | TextBlock | ConcatAll }
 
 TextBlock = { String | Newline }
 
-ArticleBlock = BracketOpen , Article , BracketClose , ConcatAll
+EvalBlock = BracketOpen , FuncBlock , [ FuncArgs ] , [ ResultArgs ] , BracketClose
 
-FunctionBlock = BracketOpen , PreDot , [ PostDot ] , [ SpecialArgs ] , [ PipedArgs ] , BracketClose
+FuncBlock = Whitespace , Idenitifer , { Dot , Idenitifer } , [ QuestionMark ]
 
-PreDot = Argument
+FuncArgs = { Whitespace , Value }
 
-PostDot = Dot , [ Argument ]
+ResultArgs = Whitespace , { Pipe , ResultConcat }
 
-SpecialArgs = { Space , ( Argument | Dot ) } , { Newline | Space }
+ResultConcat = { ( EvalBlock | TextBlock | ResultConcat ) , { Newline } }
 
-PipedArgs = { Pipe , ( PipedConcatAll , { Newline } ) }
 
-PipedConcatAll = { ( FunctionBlock | PipedArticleBlock | TextBlock | PipedConcatAll ) , { Newline } }
-
-PipedArticleBlock = BracketOpen , Article , BracketClose , PipedConcatAll

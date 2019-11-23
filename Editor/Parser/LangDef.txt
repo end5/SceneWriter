@@ -1,0 +1,47 @@
+EBNF
+
+definition	=
+concatenation	,
+termination	;
+alternation	|
+optional	[ ... ]
+repetition	{ ... }
+grouping	( ... )
+terminal string	" ... "
+terminal string	' ... '
+comment	(* ... *)
+special sequence	? ... ?
+exception	-
+
+String =        ? anything ?
+
+BracketOpen =   '['
+BracketClose =  ']'
+Pipe =          '|'
+Space =         ' '
+Newline =       '\n'
+Escape =        '\'
+Dot =           '.'
+Article =       'a' | 'A' | 'an' | 'aN' | 'An' | 'AN'
+Argument =      String - ( Dot , Space , Pipe , BracketClose , Newline )
+
+
+ConcatAll = { FunctionBlock | ArticleBlock | TextBlock | ConcatAll }
+
+TextBlock = { String | Newline }
+
+ArticleBlock = BracketOpen , Article , BracketClose , ConcatAll
+
+FunctionBlock = BracketOpen , PreDot , [ PostDot ] , [ SpecialArgs ] , [ PipedArgs ] , BracketClose
+
+PreDot = Argument
+
+PostDot = Dot , [ Argument ]
+
+SpecialArgs = { Space , ( Argument | Dot ) } , { Newline | Space }
+
+PipedArgs = { Pipe , ( PipedConcatAll , { Newline } ) }
+
+PipedConcatAll = { ( FunctionBlock | PipedArticleBlock | TextBlock | PipedConcatAll ) , { Newline } }
+
+PipedArticleBlock = BracketOpen , Article , BracketClose , PipedConcatAll

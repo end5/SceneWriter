@@ -1,0 +1,251 @@
+<head>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" type="text/css" href="TestUI.css">
+</head>
+
+<body>
+    <div class="tabMenu top" id="main">
+        <ul class="tabs dark">
+            <li><button class="tab light">Editor</button></li>
+            <li><button class="tab dark">Characters</button></li>
+            <li><button class="tab dark">Flags</button></li>
+            <li><button class="tab dark">Help</button></li>
+            <li><button class="tab dark">Save/Load</button></li>
+            <li><button class="tab dark">Settings</button></li>
+        </ul>
+        <div class="contents light">
+            <div class="content light" id="editor-content"><textarea style="display: none;"></textarea>
+                <div class="CodeMirror cm-s-lesser-dark CodeMirror-wrap">
+                    <div style="overflow: hidden; position: relative; width: 3px; height: 0px; top: 4px; left: 38px;">
+                        <textarea autocorrect="off" autocapitalize="off" spellcheck="false"
+                            style="position: absolute; bottom: -1em; padding: 0px; width: 1000px; height: 1em; outline: none;"
+                            tabindex="0"></textarea></div>
+                    <div class="CodeMirror-vscrollbar" tabindex="-1" cm-not-content="true">
+                        <div style="min-width: 1px; height: 0px;"></div>
+                    </div>
+                    <div class="CodeMirror-hscrollbar" tabindex="-1" cm-not-content="true">
+                        <div style="height: 100%; min-height: 1px; width: 0px;"></div>
+                    </div>
+                    <div class="CodeMirror-scrollbar-filler" cm-not-content="true"></div>
+                    <div class="CodeMirror-gutter-filler" cm-not-content="true"></div>
+                    <div class="CodeMirror-scroll" tabindex="-1">
+                        <div class="CodeMirror-sizer"
+                            style="margin-left: 30px; margin-bottom: -17px; border-right-width: 13px; min-height: 24px; padding-right: 0px; padding-bottom: 0px;">
+                            <div style="position: relative; top: 0px;">
+                                <div class="CodeMirror-lines" role="presentation">
+                                    <div role="presentation" style="position: relative; outline: none;">
+                                        <div class="CodeMirror-measure"><span><span>​</span>x</span></div>
+                                        <div class="CodeMirror-measure"></div>
+                                        <div style="position: relative; z-index: 1;"></div>
+                                        <div class="CodeMirror-cursors">
+                                            <div class="CodeMirror-cursor" style="left: 8px; top: 0px; height: 16px;">
+                                                &nbsp;</div>
+                                        </div>
+                                        <div class="CodeMirror-code" role="presentation">
+                                            <div style="position: relative;">
+                                                <div class="CodeMirror-gutter-wrapper" style="left: -30px;">
+                                                    <div class="CodeMirror-linenumber CodeMirror-gutter-elt"
+                                                        style="left: 0px; width: 21px;">1</div>
+                                                </div>
+                                                <pre class=" CodeMirror-line "
+                                                    role="presentation"><span role="presentation" style="padding-right: 0.1px;"><span cm-text="">​</span></span></pre>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div
+                            style="position: absolute; height: 13px; width: 1px; border-bottom: 0px solid transparent; top: 24px;">
+                        </div>
+                        <div class="CodeMirror-gutters" style="height: 37px;">
+                            <div class="CodeMirror-gutter CodeMirror-linenumbers" style="width: 29px;"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="tabMenu top" id="editor-content-output">
+                    <ul class="tabs light">
+                        <li><button class="tab light">Interactive</button></li>
+                        <li><button class="tab light">Game Raw</button></li>
+                        <li><button class="tab dark">Parser Tags</button></li>
+                    </ul>
+                    <div class="contents dark">
+                        <div class="content dark collapsed"></div>
+                        <div class="content dark collapsed"></div>
+                        <div class="content dark" id="parser-tags">
+                            <div class="filterDiv light"><input class="filterBar" type="text" placeholder="Filter...">
+                            </div>
+                            <div class="tabMenu left">
+                                <ul class="tabs dark">
+                                    <li><button class="tab light">flags</button></li>
+                                    <li><button class="tab dark">other</button></li>
+                                    <li><button class="tab dark">char</button></li>
+                                    <li><button class="tab dark">party</button></li>
+                                    <li><button class="tab dark">pc</button></li>
+                                    <li><button class="tab dark">garret</button></li>
+                                    <li><button class="tab dark">kiyoko</button></li>
+                                    <li><button class="tab dark">gwyn</button></li>
+                                    <li><button class="tab dark">etheryn</button></li>
+                                    <li><button class="tab dark">kinu</button></li>
+                                </ul>
+                                <div class="contents light">
+                                    <div class="content light">
+                                        <ul id="parser-tag-list" class="dark">
+                                            <li>
+                                                <div class="parserTag"><button
+                                                        class="parserTagName dark">AHMRI_BLOWJOB</button></div>
+                                            </li>
+                                            <li>
+                                                <div class="parserTag"><button
+                                                        class="parserTagName dark">AHMRI_CUDDLEBATED</button></div>
+                                            </li>
+                                            <li>
+                                                <div class="parserTag"><button
+                                                        class="parserTagName dark">AHMRI_ENCOUNTERED</button></div>
+                                            </li>
+                                            <li>
+                                                <div class="parserTag"><button
+                                                        class="parserTagName dark">AHMRI_FUCKED</button></div>
+                                            </li>
+                                            <li>
+                                                <div class="parserTag"><button
+                                                        class="parserTagName dark">AHMRI_MUNCHED</button></div>
+                                            </li>
+                                            <li>
+                                                <div class="parserTag"><button
+                                                        class="parserTagName dark">AHMRI_SAVED</button></div>
+                                            </li>
+                                            <li>
+                                                <div class="parserTag"><button
+                                                        class="parserTagName dark">AHMRI_SEX_WAIT</button></div>
+                                            </li>
+                                            <li>
+                                                <div class="parserTag"><button
+                                                        class="parserTagName dark">AHMRI_TALK_CAMP</button></div>
+                                            </li>
+                                            <li>
+                                                <div class="parserTag"><button
+                                                        class="parserTagName dark">AHMRI_TEASED</button></div>
+                                            </li>
+                                            <li>
+                                                <div class="parserTag"><button
+                                                        class="parserTagName dark">AHMRI_TITFUCKED</button></div>
+                                            </li>
+                                            <li>
+                                                <div class="parserTag"><button
+                                                        class="parserTagName dark">ALRAUNE_DEFEATED</button></div>
+                                            </li>
+                                            <li>
+                                                <div class="parserTag"><button
+                                                        class="parserTagName dark">ALRAUNE_DOM</button></div>
+                                            </li>
+                                            <li>
+                                                <div class="parserTag"><button
+                                                        class="parserTagName dark">ALRAUNE_KILLED</button></div>
+                                            </li>
+                                            <li>
+                                                <div class="parserTag"><button
+                                                        class="parserTagName dark">ALRAUNE_PC_PREG_FERTILIZED</button>
+                                                </div>
+                                            </li>
+                                            <li>
+                                                <div class="parserTag"><button
+                                                        class="parserTagName dark">ALRAUNE_PC_PREG_NUM_KIDS</button>
+                                                </div>
+                                            </li>
+                                            <li>
+                                                <div class="parserTag"><button
+                                                        class="parserTagName dark">ALRAUNE_SEEDED</button></div>
+                                            </li>
+                                            <li>
+                                                <div class="parserTag"><button
+                                                        class="parserTagName dark">ALRAUNE_SEED_TS</button></div>
+                                            </li>
+                                            <li>
+                                                <div class="parserTag"><button
+                                                        class="parserTagName dark">ANAL_PROBING</button></div>
+                                            </li>
+                                            <li>
+                                                <div class="parserTag"><button
+                                                        class="parserTagName dark">ARONA_ENCOUNTERED</button></div>
+                                            </li>
+                                            <li>
+                                                <div class="parserTag"><button
+                                                        class="parserTagName dark">ARONA_FUCKED</button></div>
+                                            </li>
+                                            <li>
+                                                <div class="parserTag"><button
+                                                        class="parserTagName dark">ARONA_INTERROGATED</button></div>
+                                            </li>
+                                            <li>
+                                                <div class="parserTag"><button
+                                                        class="parserTagName dark">ARONA_MET</button></div>
+                                            </li>
+                                            <li>
+                                                <div class="parserTag"><button
+                                                        class="parserTagName dark">ARONA_PCWINS</button></div>
+                                            </li>
+                                            <li>
+                                                <div class="parserTag"><button
+                                                        class="parserTagName dark">ARONA_RECRUITED</button></div>
+                                            </li>
+                                            <li>
+                                                <div class="parserTag"><button
+                                                        class="parserTagName dark">ARONA_SUBMISSION</button></div>
+                                            </li>
+                                            <li>
+                                                <div class="parserTag"><button
+                                                        class="parserTagName dark">ARONA_WINS</button></div>
+                                            </li>
+                                            <li>
+                                                <div class="parserTag"><button
+                                                        class="parserTagName dark">ARONA_WON_LAST</button></div>
+                                            </li>
+                                            <li>
+                                                <div class="parserTag"><button
+                                                        class="parserTagName dark">ATUGIA_ALEWDIA</button></div>
+                                            </li>
+                                            <li>
+                                                <div class="parserTag"><button
+                                                        class="parserTagName dark">ATUGIA_RECRUITED</button></div>
+                                            </li>
+                                            <li>
+                                                <div class="parserTag"><button
+                                                        class="parserTagName dark">ATUGIA_TALKED_RUNES</button></div>
+                                            </li>
+                                            <li>
+                                                <div class="parserTag"><button
+                                                        class="parserTagName dark">BED_MATE</button></div>
+                                            </li>
+                                            <li>
+                                                <div class="parserTag"><button
+                                                        class="parserTagName dark">BERWYN_CAIT_TALK_HAD</button></div>
+                                            </li>
+                                            <li>
+                                                <div class="parserTag"><button
+                                                        class="parserTagName dark">BERWYN_DEFEATED</button></div>
+                                            </li>
+                                            <li>
+                                                <div class="parserTag"><button
+                                                        class="parserTagName dark">BERWYN_FUCKED</button></div>
+                                            </li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="pageButtons light"><button class="buttonPair dark">Previous</button><button
+                                    id="parser-tag-add-button" class="dark">Insert</button><button
+                                    class="buttonPair dark">Next</button></div>
+                            <div id="parser-tag-desc" class="dark">
+                                <div><span class="dark">Description</span></div>
+                                <div class="dark"></div>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="content light collapsed"></div>
+        </div>
+    </div>
+</body>

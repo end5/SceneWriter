@@ -41,7 +41,7 @@ export function lex(text: string, returnStates?: boolean): Token[] | LexerState[
         tokens.push(state.token);
 
         if (returnStates)
-            states.push(JSON.parse(JSON.stringify(state)));
+            states.push(copyState(state));
 
         if (state.token.type === TokenType.Newline) {
             state.lineNum++;
@@ -53,6 +53,12 @@ export function lex(text: string, returnStates?: boolean): Token[] | LexerState[
         return states;
 
     return tokens;
+}
+
+function copyState(state: LexerState) {
+    const copy: LexerState = JSON.parse(JSON.stringify(state));
+    copy.token.range = new TextRange(copy.token.range.start, copy.token.range.end)
+    return copy;
 }
 
 function createToken(stream: StringStream, state: LexerState): Token {
@@ -175,10 +181,10 @@ function tokenize(stream: StringStream, state: LexerState) {
         state.codeStack[0] === CodeState.Results
     ) {
         if (stream.eat(TokenSymbol.BracketClose)) {
-            // Move state from (Identity, Arguments or Results) to Text
-            while (state.codeStack.length > 0 && state.codeStack[0] !== CodeState.Text)
+            // Move state from (Identity, Arguments or Results) to (Text or Results)
+            while (state.codeStack.length > 0 && (state.codeStack[0] !== CodeState.Text && state.codeStack[0] !== CodeState.Results))
                 state.codeStack.shift();
-            if (state.codeStack[0] !== CodeState.Text)
+            if (state.codeStack[0] !== CodeState.Text && state.codeStack[0] !== CodeState.Results)
                 return TokenType.Error;
             return TokenType.BracketClose;
         }

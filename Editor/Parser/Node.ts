@@ -6,6 +6,7 @@ export enum NodeType {
     Number = 'number',
     Concat = 'concat',
     Eval = 'eval',
+    Return = 'return',
     Exists = 'exists',
     Range = 'range',
     Equals = 'equals',
@@ -30,7 +31,7 @@ export function isErrorNode(node: Node<NodeType, any, any>): node is ErrorNode {
 }
 
 export type FuncChild = StringNode | ConcatNode | FuncNodes;
-export type FuncNodes = EvalNode | ExistsNode;// | RangeNode | EqualsNode;
+export type FuncNodes = EvalNode | ReturnNode | ExistsNode;// | RangeNode | EqualsNode;
 
 export class ConcatNode extends Node<NodeType.Concat,
     StringNode[],
@@ -63,6 +64,16 @@ export class EvalNode extends Node<NodeType.Eval,
                 '], [' +
                 this.children[2].map((child) => child.toCode()).join(', ') +
                 ']);';
+    }
+}
+
+export class ReturnNode extends Node<NodeType.Return, StringNode[], [RetrieveNode | AccessNode]> {
+    public constructor(range: TextRange, value: StringNode[], children: [RetrieveNode | AccessNode]) {
+        super(NodeType.Return, range, value, children);
+    }
+
+    public toCode(): string {
+        return this.children[0].toCode();
     }
 }
 

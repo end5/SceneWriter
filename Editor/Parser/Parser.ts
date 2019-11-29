@@ -1,7 +1,7 @@
 import { TokenType, Token } from "./Token";
 import { TokenStream } from './TokenStream';
 import { TextRange } from './TextRange';
-import { NodeType, StringNode, ErrorNode, isErrorNode, NumberNode, AccessNode, RetrieveNode, ConcatNode, ExistsNode, EvalNode, FuncChild, FuncNodes, IdentityNode } from "./Node";
+import { NodeType, StringNode, ErrorNode, isErrorNode, NumberNode, AccessNode, RetrieveNode, ConcatNode, ExistsNode, EvalNode, FuncChild, FuncNodes, IdentityNode, ReturnNode } from "./Node";
 import { ParserObject } from "./ParserObject";
 
 export interface ParserError {
@@ -38,6 +38,10 @@ export class Parser {
         return { root, errors };
     }
 
+    /**
+     * A ConcatNode with one blank StringNode with specified range
+     * @param range 
+     */
     private empty(range = new TextRange()) {
         const result = new StringNode(range, '');
         return new ConcatNode(
@@ -85,12 +89,9 @@ export class Parser {
                 this.stream.pos++;
         }
 
+        // Nothing so force empty
         if (arr.length === 0) {
-            // Nothing so empty StringNode
-            arr.push(new StringNode(
-                new TextRange(this.stream.current.range.start, this.stream.current.range.end),
-                ''
-            ));
+            return this.empty(new TextRange(this.stream.current.range.start, this.stream.current.range.end));
         }
 
         // Merge results into StringNode[]
@@ -156,7 +157,7 @@ export class Parser {
         return codeNode;
     }
 
-    private evalBlock(): ErrorNode | ExistsNode | EvalNode {
+    private evalBlock(): ErrorNode | ExistsNode | EvalNode | ReturnNode {
 
         let identityNode = this.identityBlock();
         if (isErrorNode(identityNode)) return identityNode;
@@ -177,6 +178,7 @@ export class Parser {
                 );
 
             let resultNode = resultNodes[identityNode.value ? 0 : 1]
+            // No result, use empty
             if (resultNode === undefined) {
                 resultNode = this.empty(new TextRange(resultNodes[0].range.end, resultNodes[0].range.end));
             }
@@ -205,7 +207,6 @@ export class Parser {
             else
                 rangeEnd = identityNode.range.end;
 
-            let resultNode;
             if (typeof identityNode.value === 'function') {
                 // Function result
                 const result = identityNode.value(
@@ -215,6 +216,7 @@ export class Parser {
                         [] as string[]),
                 );
 
+                let resultNode;
                 // If result was number, use it to pick the result node
                 if (typeof result === 'number') {
                     if (resultNodes.length !== 0 && result >= 0 && result < resultNodes.length)
@@ -230,24 +232,25 @@ export class Parser {
                         new TextRange(identityNode.range.start, rangeEnd),
                         result + ''
                     )];
-            }
-            else if (typeof identityNode.value === 'number' || typeof identityNode.value === 'string') {
-                resultNode = [new StringNode(
+                return new EvalNode(
                     new TextRange(identityNode.range.start, rangeEnd),
-                    identityNode.value + '' // Dont return numbers
-                )];
-            }
-            else {
-                return new ErrorNode(
-                    identityNode.range,
-                    'function, number or string'
+                    resultNode,
+                    [identityNode, argNodes, resultNodes]
                 );
             }
-
-            return new EvalNode(
-                new TextRange(identityNode.range.start, rangeEnd),
-                resultNode,
-                [identityNode, argNodes, resultNodes]
+            else if (typeof identityNode.value === 'number' || typeof identityNode.value === 'string') {
+                return new ReturnNode(
+                    new TextRange(identityNode.range.start, rangeEnd),
+                    [new StringNode(
+                        new TextRange(identityNode.range.start, rangeEnd),
+                        identityNode.value + '' // Dont return numbers
+                    )],
+                    [identityNode]
+                );
+            }
+            return new ErrorNode(
+                identityNode.range,
+                'function, number or string'
             );
         }
     }
@@ -390,12 +393,9 @@ export class Parser {
             if (!newNode) break;
         }
 
+        // Nothing so force empty
         if (arr.length === 0) {
-            // Nothing so empty StringNode
-            arr.push(new StringNode(
-                new TextRange(this.stream.current.range.start, this.stream.current.range.end),
-                ''
-            ));
+            return this.empty(new TextRange(this.stream.current.range.start, this.stream.current.range.end));
         }
 
         // Merge results into StringNode[]

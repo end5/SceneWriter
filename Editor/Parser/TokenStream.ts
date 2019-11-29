@@ -35,4 +35,16 @@ export class TokenStream {
             return this.tokens[this.pos++] as Token<T>;
         return;
     }
+
+    public whitespace() {
+        let ate = false;
+        while (!this.eos() && (
+            this.tokens[this.pos].type === TokenType.Newline ||
+            this.tokens[this.pos].type === TokenType.Space
+        )) {
+            this.pos++
+            ate = true;
+        }
+        return ate;
+    }
 }

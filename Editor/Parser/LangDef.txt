@@ -1,48 +1,60 @@
 EBNF
 
-definition	=
-concatenation	,
-termination	;
-alternation	|
-optional	[ ... ] - zero or one
-repetition	{ ... } - zero or more
-grouping	( ... )
-terminal string	" ... "
-terminal string	' ... '
-comment	(* ... *)
-special sequence	? ... ?
-exception	-
+definition         =
+concatenation      ,
+alternation        |
+optional           [ ... ] - zero or one
+repetition         { ... } - zero or more
+grouping           ( ... )
+terminal string    ' ... '
+comment            (* ... *)
+special sequence   ? ... ?
+exception          -
 
 String =        ? anything ?
-Character =     ? A-Za-z ?
 
 BracketOpen =   '['
 BracketClose =  ']'
 Pipe =          '|'
 Space =         ' '
+Tab =           '\t'
 Newline =       '\n'
 Escape =        '\'
 Dot =           '.'
 QuestionMark =  '?'
-Number =        '0' , '1' , '2' , '3' , '4' , '5' , '6' , '7' , '8' , '9'
+Arrow =         '<'
+Equal =         '='
+Number =        '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'
 
-Decimal =       { Number } , Dot , { Number }
-Idenitifer =    Character , { Number | Character }
+Decimal =       { Number } , Dot , Number , { Number }
+Identity =      String - ( Whitespace | Dot | QuestionMark | Pipe | BracketClose )
 Value =         Number | Decimal | ( String - ( Whitespace | Pipe | BracketClose ) )
-Whitespace =    { Space | Newline }
+Text =          String - ( Newline | BracketOpen )
+Whitespace =    Space | Tab | Newline
 
-ConcatAll = { EvalBlock | TextBlock | ConcatAll }
+ConcatAll = { CodeBlock | TextBlock | ConcatAll }
 
-TextBlock = { String | Newline }
+TextBlock = { Text | Newline }
 
-EvalBlock = BracketOpen , FuncBlock , [ FuncArgs ] , [ ResultArgs ] , BracketClose
+CodeBlock = BracketOpen , ( EvalBlock | ExistsBlock | RangeBlock | EqualBlock ) , BracketClose
 
-FuncBlock = Whitespace , Idenitifer , { Dot , Idenitifer } , [ QuestionMark ]
+EvalBlock = IdentityBlock , [ ArgumentBlock ] , [ ResultBlock ]
 
-FuncArgs = { Whitespace , Value }
+ExistsBlock = IdentityBlock , QuestionMark , ResultBlock
 
-ResultArgs = Whitespace , { Pipe , ResultConcat }
+RangeBlock = IdentityBlock , Arrow , ArgumentBlock , ResultBlock
 
-ResultConcat = { ( EvalBlock | TextBlock | ResultConcat ) , { Newline } }
+EqualBlock = IdentityBlock , Equal , ArgumentBlock , ResultBlock
+
+IdentityBlock = { Whitespace } , Identity , { Dot , Identity }
+
+ArgumentBlock = { Whitespace , { Whitespace } , Value }
+
+ResultBlock = { Whitespace } , { Pipe , ResultConcat }
+
+ResultConcat = { CodeBlock | TextBlock | ResultConcat }
 
 
+[pc.str] -> pc.str([],[])
+[pc.str||] -> pc.str([],['',''])
+[pc.str 3||] -> pc.str([3],['',''])

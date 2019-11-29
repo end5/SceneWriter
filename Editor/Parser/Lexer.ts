@@ -3,7 +3,7 @@ import { TokenType, Token } from './Token';
 import { TextRange } from './TextRange';
 
 export interface LexerState {
-    codeStack: string[];
+    codeStack: CodeState[];
     beginNewline: boolean;
     escaped: boolean;
     text: string;
@@ -19,7 +19,7 @@ export function lex(text: string, returnStates?: boolean): Token[] | LexerState[
     const states: LexerState[] = [];
     const stream = new StringStream(text);
     const state: LexerState = {
-        codeStack: [],
+        codeStack: [CodeState.Text],
         beginNewline: false,
         escaped: false,
         text: '',
@@ -70,9 +70,18 @@ enum TokenSymbol {
     BracketOpen = '[',
     BracketClose = ']',
     Pipe = '|',
+    QuestionMark = '?',
     Dot = '.',
     Space = ' ',
     Tab = '\t',
+}
+
+enum CodeState {
+    Text = 't',
+    CodeStart = '[',
+    Identity = 'i',
+    Arguments = 'a',
+    Results = 'r'
 }
 
 function tokenize(stream: StringStream, state: LexerState) {
@@ -83,11 +92,12 @@ function tokenize(stream: StringStream, state: LexerState) {
     }
     if (state.beginNewline) {
         state.beginNewline = false;
-        if (stream.eat(TokenSymbol.Tab) || stream.eat(TokenSymbol.Space)) {
-            while (stream.eat(TokenSymbol.Tab) || stream.eat(TokenSymbol.Space)) { }
-            return TokenType.Whitespace;
+        if (stream.eat(TokenSymbol.Space) || stream.eat(TokenSymbol.Tab)) {
+            while (stream.eat(TokenSymbol.Space) || stream.eat(TokenSymbol.Tab)) { }
+            return TokenType.Space;
         }
     }
+    // Always - <...[... ...|...]...>
     if (stream.eat(TokenSymbol.Newline)) {
         state.beginNewline = true;
         return TokenType.Newline;
@@ -99,82 +109,118 @@ function tokenize(stream: StringStream, state: LexerState) {
         }
         return TokenType.Error;
     }
-    else if (stream.eat(TokenSymbol.BracketOpen)) {
-        state.codeStack.unshift(TokenSymbol.BracketOpen);
-        return TokenType.BracketOpen;
+    // Bracket Open - <...>[... ...|<...>]<...>
+    if (state.codeStack[0] === CodeState.Text || state.codeStack[0] === CodeState.Results) {
+        if (stream.eat(TokenSymbol.BracketOpen)) {
+            // Move state from (Text or Results) to CodeStart
+            state.codeStack.unshift(CodeState.CodeStart);
+            return TokenType.BracketOpen;
+        }
     }
-    else if (stream.eat(TokenSymbol.BracketClose)) {
-        if (state.codeStack.length > 0) {
-            while (state.codeStack.length > 1 && state.codeStack[0] !== TokenSymbol.BracketOpen)
+    // Text - <...>[... ...|...]<...>
+    if (state.codeStack[0] === CodeState.Text) {
+        if (stream.eatWhileNot(
+            TokenSymbol.BracketOpen,
+            TokenSymbol.Newline,
+            TokenSymbol.Escape,
+        ))
+            return TokenType.String;
+    }
+    // Start - ...[<>... ...|...]...
+    if (state.codeStack[0] === CodeState.CodeStart) {
+        if (stream.eat(TokenSymbol.Space) || stream.eat(TokenSymbol.Tab)) {
+            while (stream.eat(TokenSymbol.Space) || stream.eat(TokenSymbol.Tab)) { }
+            return TokenType.Space;
+        }
+        // Move state from CodeStart to Identity
+        state.codeStack.unshift(CodeState.Identity);
+    }
+    // Identity - ...[<...> ...|...]...
+    if (state.codeStack[0] === CodeState.Identity) {
+        if (stream.eat(TokenSymbol.Space) || stream.eat(TokenSymbol.Tab)) {
+            while (stream.eat(TokenSymbol.Space) || stream.eat(TokenSymbol.Tab)) { }
+            // Move state from Identity to Arguments
+            state.codeStack.unshift(CodeState.Arguments);
+            return TokenType.Space;
+        }
+        else if (stream.eat(TokenSymbol.Dot)) {
+            return TokenType.Dot;
+        }
+        else if (stream.eat(TokenSymbol.QuestionMark)) {
+            return TokenType.QuestionMark;
+        }
+        else if (stream.eat(TokenSymbol.Pipe)) {
+            // Move state from Identity to Results
+            state.codeStack.unshift(CodeState.Results);
+            return TokenType.Pipe;
+        }
+        else {
+            if (stream.eatWhileNot(
+                TokenSymbol.Space,
+                TokenSymbol.Tab,
+                TokenSymbol.Newline,
+                TokenSymbol.Dot,
+                TokenSymbol.QuestionMark,
+                TokenSymbol.Pipe,
+                TokenSymbol.BracketClose,
+            )) {
+                return TokenType.Identity;
+            }
+        }
+    }
+    // Bracket Close - ...[...< ...|...>]...
+    if (
+        state.codeStack[0] === CodeState.Identity ||
+        state.codeStack[0] === CodeState.Arguments ||
+        state.codeStack[0] === CodeState.Results
+    ) {
+        if (stream.eat(TokenSymbol.BracketClose)) {
+            // Move state from (Identity, Arguments or Results) to Text
+            while (state.codeStack.length > 0 && state.codeStack[0] !== CodeState.Text)
                 state.codeStack.shift();
-            if (state.codeStack[0] === TokenSymbol.BracketOpen)
-                state.codeStack.shift();
-            else
+            if (state.codeStack[0] !== CodeState.Text)
                 return TokenType.Error;
             return TokenType.BracketClose;
         }
-        else return TokenType.String;
     }
-    else if (state.codeStack.length > 0) {
-        // between [ and first |
-        if (state.codeStack[0] === TokenSymbol.BracketOpen) {
-            if (stream.eat('a') || stream.eat('A')) {
-                if (stream.eat('n') || stream.eat('N')) {
-                    if (stream.peek() === TokenSymbol.BracketClose) {
-                        return TokenType.Article;
-                    }
-                    stream.pos--;
-                }
-                if (stream.peek() === TokenSymbol.BracketClose) {
-                    return TokenType.Article;
-                }
-                stream.pos--;
-            }
-
-            if (stream.eat(TokenSymbol.Dot)) {
-                return TokenType.Dot;
-            }
-            else if (stream.eat(TokenSymbol.Space) || stream.eat(TokenSymbol.Tab)) {
-                while (stream.eat(TokenSymbol.Space) || stream.eat(TokenSymbol.Tab)) { }
-                return TokenType.Whitespace;
-            }
-            else if (stream.eat(TokenSymbol.Pipe)) {
-                state.codeStack.unshift(TokenSymbol.Pipe);
-                return TokenType.Pipe;
-            }
-            else if (stream.eatWhileNot(
-                TokenSymbol.Dot,
-                TokenSymbol.Space,
-                TokenSymbol.Tab,
-                TokenSymbol.Pipe,
-                TokenSymbol.BracketClose,
-                TokenSymbol.Newline,
-            )) {
-                return TokenType.Arg;
-            }
+    // Arguments - ...[... <...>|...]...
+    if (state.codeStack[0] === CodeState.Arguments) {
+        if (stream.eat(TokenSymbol.Space) || stream.eat(TokenSymbol.Tab)) {
+            while (stream.eat(TokenSymbol.Space) || stream.eat(TokenSymbol.Tab)) { }
+            return TokenType.Space;
         }
-        // between first | and ]
-        if (state.codeStack[0] === TokenSymbol.Pipe) {
-            if (stream.eat(TokenSymbol.Pipe)) {
-                state.codeStack.unshift(TokenSymbol.Pipe);
-                return TokenType.Pipe;
-            }
-            else if (stream.eatWhileNot(
-                TokenSymbol.BracketOpen,
-                TokenSymbol.BracketClose,
-                TokenSymbol.Pipe,
-                TokenSymbol.Newline,
-                TokenSymbol.Escape,
-            ))
-                return TokenType.String;
+        else if (stream.eat(TokenSymbol.Dot)) {
+            return TokenType.Dot;
+        }
+        else if (stream.eat(TokenSymbol.Pipe)) {
+            // Move state from Arguments to Results
+            state.codeStack.unshift(CodeState.Results);
+            return TokenType.Pipe;
+        }
+        else if (stream.eatWhileNot(
+            TokenSymbol.Space,
+            TokenSymbol.Tab,
+            TokenSymbol.Newline,
+            TokenSymbol.Dot,
+            TokenSymbol.Pipe,
+            TokenSymbol.BracketClose,
+        )) {
+            return TokenType.String;
         }
     }
-    // outside string
-    else if (stream.eatWhileNot(
-        TokenSymbol.BracketOpen,
-        TokenSymbol.Newline,
-        TokenSymbol.Escape,
-    ))
-        return TokenType.String;
+    // Results - ...[... ...|<...>]...
+    if (state.codeStack[0] === CodeState.Results) {
+        if (stream.eat(TokenSymbol.Pipe)) {
+            return TokenType.Pipe;
+        }
+        else if (stream.eatWhileNot(
+            TokenSymbol.BracketOpen,
+            TokenSymbol.BracketClose,
+            TokenSymbol.Pipe,
+            TokenSymbol.Newline,
+            TokenSymbol.Escape,
+        ))
+            return TokenType.String;
+    }
     return TokenType.Error;
 }

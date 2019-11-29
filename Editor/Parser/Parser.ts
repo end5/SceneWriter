@@ -1,329 +1,453 @@
 import { TokenType, Token } from "./Token";
 import { TokenStream } from './TokenStream';
-import { SyntaxType, ErrorNode, SyntaxNode, isSyntaxNodeType, isErrorNode } from './SyntaxNode';
 import { TextRange } from './TextRange';
+import { NodeType, StringNode, ErrorNode, isErrorNode, NumberNode, AccessNode, RetrieveNode, ConcatNode, ExistsNode, EvalNode, FuncChild } from "./Node";
 
 export interface ParserError {
     range: TextRange;
     msg: string;
 }
 
-export function parse(tokens: Token[], text: string) {
-    const stream = new TokenStream(tokens);
-    const errors: ParserError[] = [];
-
-    if (tokens.length <= 0)
-        return { node: new SyntaxNode(SyntaxType.String, { start: { line: 0, col: 0 }, end: { line: 0, col: 0 } }, ''), errors };
-
-    const root = concatAll(stream, text, errors);
-    if (!root)
-        return { node: new SyntaxNode(SyntaxType.String, { start: { line: 0, col: 0 }, end: { line: 0, col: 0 } }, ''), errors };
-
-    return { node: root, errors };
+export interface ParserResult {
+    node: StringNode[];
+    errors: ParserError[];
 }
 
-function createError(node: ErrorNode): ParserError {
-    return { range: node.range, msg: `Expected "${node.value}"` };
-}
+export class Parser {
+    private stream: TokenStream;
+    private errors: ParserError[] = [];
+    private text: string;
+    private globals: Record<string, any>;
 
-function getText(token: Token, text: string) {
-    return text.slice(token.range.start.col + token.offset, token.range.end.col + token.offset);
-}
+    public constructor(tokens: Token[], text: string, globals: Record<string, any>) {
+        this.stream = new TokenStream(tokens);
+        this.text = text;
+        this.globals = globals;
+    }
 
-function concatAll(stream: TokenStream, text: string, errors: ParserError[]) {
-    const root = new SyntaxNode(SyntaxType.Concat, new TextRange(stream.current.range.start, stream.current.range.end));
-    let newNode;
-    let lastPos = stream.pos;
+    public parse() {
+        if (this.stream.eos())
+            return { node: [new StringNode(new TextRange(), '')], errors: [] };
 
-    while (!stream.eos()) {
-        lastPos = stream.pos;
+        const root = this.concatAll();
+        const errors = this.errors;
+        if (!root)
+            return { node: [new StringNode(new TextRange(), '')], errors };
 
-        newNode = codeBlock(stream, text, errors);
-        if (lastPos === stream.pos) {
-            // If first match in codeBlock didn't match, ignore error and resume checking
-            newNode = textBlock(stream, text);
+        return { node: root, errors };
+    }
+
+    private createError(node: ErrorNode): ParserError {
+        return { range: node.range, msg: `Expected "${node.value}"` };
+    }
+
+    private getText(token: Token) {
+        return this.text.slice(token.range.start.col + token.offset, token.range.end.col + token.offset);
+    }
+
+    private concatAll() {
+        let newNode;
+        const arr = [];
+        // let lastPos = stream.pos;
+
+        while (!this.stream.eos()) {
+            // lastPos = stream.pos;
+
+            newNode = this.codeBlock();
+            // if (lastPos === stream.pos) {
+            if (!newNode) {
+                // If first match in codeBlock didn't match, ignore error and resume checking
+                newNode = this.textBlock();
+            }
+
+            if (newNode) {
+                if (isErrorNode(newNode)) {
+                    this.errors.push(this.createError(newNode));
+                }
+                else {
+                    arr.push(newNode);
+                }
+            }
+
+            // Force the stream forward in case nothing was found
+            // if (lastPos === stream.pos)
+            if (!newNode)
+                this.stream.pos++;
         }
 
-        if (newNode) {
-            if (isErrorNode(newNode)) {
-                errors.push(createError(newNode));
+        if (arr.length === 0) {
+            // Nothing so empty StringNode
+            arr.push(new StringNode(
+                new TextRange(this.stream.current.range.start, this.stream.current.range.end),
+                ''
+            ));
+        }
+
+        // Merge results into StringNode[]
+        const result = [];
+        for (const child of arr)
+            if (child.type === NodeType.String)
+                result.push(child);
+            else
+                result.push(...child.value);
+
+        return result;
+
+        // return new ConcatNode(
+        //     NodeType.Concat,
+        //     new TextRange(arr[0].range.start, arr[arr.length - 1].range.end),
+        //     result,
+        //     arr
+        // );
+    }
+
+    private textBlock() {
+        const startToken = this.stream.current;
+        let endToken;
+        let token;
+        let subText = '';
+        let escapeOffset = 0;
+        while (!this.stream.eos()) {
+            this.stream.consume(TokenType.Space);
+            token = this.stream.consume(TokenType.String);
+            if (!token) token = this.stream.consume(TokenType.Escape);
+            if (!token) token = this.stream.consume(TokenType.Newline);
+            if (!token) break;
+            if (token.type === TokenType.Escape)
+                escapeOffset = 2;
+            else
+                escapeOffset = 0;
+            subText += this.text.slice(token.range.start.col + token.offset + escapeOffset, token.range.end.col + token.offset);
+            endToken = token;
+        }
+        if (endToken) {
+            return new StringNode(
+                new TextRange(startToken.range.start, endToken.range.end),
+                subText
+            );
+        }
+        return;
+    }
+
+    private codeBlock() {
+        // Leave if no bracket
+        const bracketOpenToken = this.stream.consume(TokenType.BracketOpen);
+        if (!bracketOpenToken) return;
+
+        let codeNode = this.evalBlock();
+        if (isErrorNode(codeNode)) return codeNode;
+
+        // don't advance token stream on error
+        if (!this.stream.match(TokenType.BracketClose))
+            return new ErrorNode(
+                bracketOpenToken.range,
+                ']'
+            );
+
+        this.stream.consume(TokenType.BracketClose);
+
+        return codeNode;
+    }
+
+    private evalBlock(): ErrorNode | ExistsNode | EvalNode {
+
+        let identityNode = this.identityBlock();
+        if (isErrorNode(identityNode)) return identityNode;
+
+        if (this.stream.consume(TokenType.QuestionMark)) {
+            const resultNodes = this.resultBlock();
+
+            if (resultNodes.length === 0)
+                return new ErrorNode(
+                    new TextRange(identityNode.range.end, identityNode.range.end),
+                    'at least 1 result'
+                );
+
+            if (resultNodes.length > 2)
+                return new ErrorNode(
+                    new TextRange(resultNodes[1].range.end, resultNodes[resultNodes.length - 1].range.end),
+                    '2 results'
+                );
+
+            const resultNode = resultNodes[identityNode.value ? 0 : 1];
+
+            return new ExistsNode(
+                NodeType.Exists,
+                new TextRange(identityNode.range.start, resultNodes[1].range.end),
+                resultNode.value,
+                [identityNode, resultNodes as [FuncChild, FuncChild?]]
+            );
+        }
+        // else if (this.stream.consume(TokenType.Arrow)) {
+
+        // }
+        // else if (this.stream.consume(TokenType.Equal)) {
+
+        // }
+        else {
+            const argNodes = this.argumentBlock();
+            const resultNodes = this.resultBlock();
+
+            let rangeEnd;
+            if (resultNodes.length > 0)
+                rangeEnd = resultNodes[resultNodes.length - 1].range.end;
+            else if (argNodes.length > 0)
+                rangeEnd = argNodes[argNodes.length - 1].range.end;
+            else
+                rangeEnd = identityNode.range.end;
+
+            let resultNode;
+            if (typeof identityNode.value === 'function') {
+                // Function result
+                const result = identityNode.value(
+                    argNodes.map((child) => child.value),
+                    resultNodes.reduce((arr, child) =>
+                        arr.concat(child.value.map((child) => child.value)),
+                        [] as string[]),
+                );
+
+                // If result was number, use it to pick the result node
+                if (typeof result === 'number') {
+                    if (resultNodes.length !== 0 && result >= 0 && result < resultNodes.length)
+                        resultNode = resultNodes[result].value;
+                    else
+                        return new ErrorNode(
+                            identityNode.range,
+                            result + ' is out of range of results'
+                        );
+                }
+                else
+                    resultNode = [new StringNode(
+                        new TextRange(identityNode.range.start, rangeEnd),
+                        result + ''
+                    )];
+            }
+            else if (typeof identityNode.value === 'number' || typeof identityNode.value === 'string') {
+                resultNode = [new StringNode(
+                    new TextRange(identityNode.range.start, rangeEnd),
+                    identityNode.value + '' // Dont return numbers
+                )];
             }
             else {
-                // The article node needs sub node for checking
-                if (isSyntaxNodeType(newNode, SyntaxType.Article)) {
-                    const articleChild = concatAll(stream, text, errors);
-                    if (articleChild)
-                        newNode.right = articleChild;
-                    else
-                        newNode.right = new SyntaxNode(
-                            SyntaxType.EmptyString,
-                            new TextRange(stream.current.range.start, stream.current.range.end)
-                        );
-                    newNode.range.end = newNode.right.range.end;
-                }
-                root.children.push(newNode);
+                return new ErrorNode(
+                    identityNode.range,
+                    'function, number or string'
+                );
+            }
+
+            return new EvalNode(
+                NodeType.Eval,
+                new TextRange(identityNode.range.start, rangeEnd),
+                resultNode,
+                [identityNode, argNodes, resultNodes]
+            );
+        }
+    }
+
+    private identityBlock() {
+        this.stream.whitespace();
+
+        let identityNode = this.getIdentity();
+        if (!identityNode)
+            return new ErrorNode(
+                new TextRange(this.stream.current.range.start, this.stream.current.range.end),
+                'Identity'
+            );
+
+        // Retrieve node to get value from global
+        let rootNode;
+
+        // Check result
+        if (!this.globals[identityNode.value])
+            return new ErrorNode(
+                new TextRange(identityNode.range.start, identityNode.range.end),
+                identityNode.value + ' does not exist in globals'
+            );
+
+        rootNode = new RetrieveNode(
+            new TextRange(identityNode.range.start, identityNode.range.end),
+            this.globals[identityNode.value],
+            identityNode
+        );
+
+        while (this.stream.match(TokenType.Dot)) {
+            this.stream.consume(TokenType.Dot);
+
+            identityNode = this.getIdentity();
+            if (!identityNode)
+                return new ErrorNode(
+                    new TextRange(this.stream.current.range.start, this.stream.current.range.end),
+                    'Identity'
+                );
+
+            // Create tree shifting Retrieve node down for every Access
+            //             Access
+            //            /      \
+            //        Access   Identity
+            //       /      \
+            // Retrieve   Identity
+            //     |
+            // Identity
+
+            // Check result
+            if (!rootNode.value[identityNode.value])
+                return new ErrorNode(
+                    new TextRange(identityNode.range.start, identityNode.range.end),
+                    identityNode.value + ' does not exist in ' + rootNode.value
+                );
+
+            rootNode = new AccessNode(
+                new TextRange(rootNode.range.start, identityNode.range.end),
+                rootNode.value[identityNode.value],
+                [rootNode, identityNode]
+            );
+        }
+
+        return rootNode;
+    }
+
+    private argumentBlock() {
+        const arr: (StringNode | NumberNode)[] = [];
+
+        if (this.stream.whitespace()) {
+            // Add Value nodes to Args node
+            let valueNode;
+            do {
+                valueNode = this.getValue();
+                if (!valueNode)
+                    break;
+
+                arr.push(valueNode);
+            } while (this.stream.whitespace());
+        }
+
+        // Set range to cover all args
+        // if (arr.length > 0) {
+        //     return new Node(
+        //         NodeType.Args,
+        //         new TextRange(arr[0].range.start, arr[arr.length - 1].range.end),
+        //         arr,
+        //         arr
+        //     )
+        // }
+        // else {
+        //     return new Node(
+        //         NodeType.Args,
+        //         new TextRange(this.stream.current.range.start, this.stream.current.range.end),
+        //         [],
+        //         []
+        //     );
+        // }
+        return arr;
+    }
+
+    private resultBlock() {
+        this.stream.whitespace();
+
+        const arr = [];
+
+        if (this.stream.match(TokenType.Pipe)) {
+            // Consume Pipe then ResultConcat 
+            let node;
+            while (this.stream.consume(TokenType.Pipe)) {
+                node = this.resultConcat();
+                arr.push(node);
             }
         }
 
-        // Force the stream forward in case nothing was found
-        if (lastPos === stream.pos)
-            if (!stream.eos())
-                stream.pos++;
+        return arr;
+    }
+
+    private resultConcat() {
+        const arr = [];
+        let newNode;
+
+        while (!this.stream.eos()) {
+
+            newNode = this.codeBlock();
+            if (!newNode) {
+                newNode = this.textBlock();
+            }
+
+            if (newNode)
+                if (isErrorNode(newNode)) {
+                    this.errors.push(this.createError(newNode));
+                }
+                else {
+                    arr.push(newNode);
+                }
+
+            this.stream.whitespace();
+
+            if (!newNode) break;
+        }
+
+        if (arr.length === 0) {
+            // Nothing so empty StringNode
+            arr.push(new StringNode(
+                new TextRange(this.stream.current.range.start, this.stream.current.range.end),
+                ''
+            ));
+        }
+
+        // Merge results into StringNode[]
+        const result = [];
+        for (const child of arr)
+            if (child.type === NodeType.String)
+                result.push(child);
             else
-                break;
-    }
+                result.push(...child.value);
 
-    if (root.children.length === 0) return;
-    if (root.children.length === 1) return root.left;
-
-    root.range.end = root.children[root.children.length - 1].range.end;
-
-    return root;
-}
-
-function textBlock(stream: TokenStream, text: string) {
-    const startToken = stream.current;
-    let endToken;
-    let token;
-    let subText = '';
-    let escapeOffset = 0;
-    while (!stream.eos()) {
-        stream.consume(TokenType.Whitespace);
-        token = stream.consume(TokenType.String);
-        if (!token) token = stream.consume(TokenType.Escape);
-        if (!token) token = stream.consume(TokenType.Newline);
-        if (!token) break;
-        if (token.type === TokenType.Escape)
-            escapeOffset = 2;
-        else
-            escapeOffset = 0;
-        subText += text.slice(token.range.start.col + token.offset + escapeOffset, token.range.end.col + token.offset);
-        endToken = token;
-    }
-    if (endToken) {
-        return new SyntaxNode(SyntaxType.String,
-            new TextRange(startToken.range.start, endToken.range.end),
-            subText
+        return new ConcatNode(
+            NodeType.Concat,
+            new TextRange(arr[0].range.start, arr[arr.length - 1].range.end),
+            result,
+            arr
         );
     }
-    return;
-}
 
-function codeBlock(stream: TokenStream, text: string, errors: ParserError[]) {
-    // don't advance token stream on error
-    if (!stream.match(TokenType.BracketOpen))
-        return new ErrorNode('[', stream.current.range);
-
-    const bracketOpenToken = stream.consume(TokenType.BracketOpen)!;
-
-    while (stream.consume(TokenType.Newline) || stream.consume(TokenType.Whitespace)) { }
-
-    let outerNode;
-
-    // if article is found, skip to the end of the current code block and get the next text or code block
-    outerNode = articleBlock(stream, text);
-    if (outerNode === undefined) {
-        outerNode = new SyntaxNode(SyntaxType.Code, new TextRange(stream.current.range.start, stream.current.range.end));
-        const preDotNode = preDotBlock(stream, text);
-        if (isErrorNode(preDotNode)) return preDotNode;
-        outerNode.children.push(preDotNode);
-
-        const postDotNode = postDotBlock(stream, text);
-        if (isErrorNode(postDotNode)) return postDotNode;
-        outerNode.children.push(postDotNode);
-
-        const specialArgsNode = specialArgs(stream, text);
-        if (isErrorNode(specialArgsNode)) return specialArgsNode;
-        outerNode.children.push(specialArgsNode);
-
-        const pipedArgsNode = pipedArgs(stream, text, errors);
-        if (isErrorNode(pipedArgsNode)) return pipedArgsNode;
-        outerNode.children.push(pipedArgsNode);
-
-        if (outerNode.children.length > 0)
-            outerNode.range.end = outerNode.children[outerNode.children.length - 1].range.end;
-    }
-
-    // don't advance token stream on error
-    if (!stream.match(TokenType.BracketClose))
-        return new ErrorNode(']', bracketOpenToken.range);
-
-    stream.consume(TokenType.BracketClose);
-
-    return outerNode;
-}
-
-function articleBlock(stream: TokenStream, text: string) {
-    let node;
-    if (stream.match(TokenType.Article)) {
-        node = new SyntaxNode(
-            SyntaxType.Article,
-            new TextRange(stream.current.range.start, stream.current.range.end),
-            '',
-            new SyntaxNode(
-                SyntaxType.String,
-                new TextRange(stream.current.range.start, stream.current.range.end),
-                getText(stream.current, text)
-            )
-        );
-        stream.consume(TokenType.Article);
-    }
-    return node;
-}
-
-function preDotBlock(stream: TokenStream, text: string) {
-    // don't advance token stream on error
-    if (!stream.match(TokenType.Arg))
-        return new ErrorNode('Argument', stream.current.range);
-
-    const preDotNode = new SyntaxNode(
-        SyntaxType.String,
-        new TextRange(stream.current.range.start, stream.current.range.end),
-        getText(stream.current, text)
-    );
-    stream.consume(TokenType.Arg);
-
-    return preDotNode;
-}
-
-function postDotBlock(stream: TokenStream, text: string) {
-    let postDotNode;
-    if (stream.consume(TokenType.Dot)) {
-        if (stream.match(TokenType.Arg)) {
-            postDotNode = new SyntaxNode(
-                SyntaxType.String,
-                new TextRange(stream.current.range.start, stream.current.range.end),
-                getText(stream.current, text)
-            );
-            stream.consume(TokenType.Arg);
-        }
-        else {
-            while (stream.consume(TokenType.Newline) || stream.consume(TokenType.Whitespace)) { }
-            if (!stream.match(TokenType.Pipe))
-                return new ErrorNode('|', stream.current.range);
-
-            postDotNode = new SyntaxNode(
-                SyntaxType.Exists,
-                new TextRange(stream.current.range.start, stream.current.range.end)
+    private getIdentity() {
+        if (this.stream.match(TokenType.Identity)) {
+            const token = this.stream.consume(TokenType.Identity)!;
+            return new StringNode(
+                new TextRange(token.range.start, token.range.end),
+                this.getText(token)
             );
         }
     }
-    if (!postDotNode)
-        postDotNode = new SyntaxNode(
-            SyntaxType.EmptyString,
-            new TextRange(stream.current.range.start, stream.current.range.start),
-        );
 
-    return postDotNode;
-}
+    private getValue() {
+        let subStr = "";
 
-function specialArgs(stream: TokenStream, text: string) {
-    const args = new SyntaxNode(SyntaxType.Args, new TextRange(stream.current.range.start, stream.current.range.end));
-    let subStr = '';
+        const start = this.stream.current;
 
-    while (stream.consume(TokenType.Whitespace)) {
-        if (stream.match(TokenType.Arg)) {
-            subStr += getText(stream.current, text);
-            stream.consume(TokenType.Arg);
-        }
-        if (stream.match(TokenType.Dot)) {
-            subStr += getText(stream.current, text);
-            stream.consume(TokenType.Dot);
-            if (!stream.match(TokenType.Arg))
-                return new ErrorNode('Argument', stream.current.range);
-
-            subStr += getText(stream.current, text);
-            stream.consume(TokenType.Arg);
+        while (true) {
+            if (this.stream.match(TokenType.String)) {
+                subStr += this.getText(this.stream.current);
+                this.stream.consume(TokenType.String);
+            }
+            else if (this.stream.match(TokenType.Dot)) {
+                subStr += this.getText(this.stream.current);
+                this.stream.consume(TokenType.Dot);
+            }
+            else if (this.stream.match(TokenType.QuestionMark)) {
+                subStr += this.getText(this.stream.current);
+                this.stream.consume(TokenType.QuestionMark);
+            }
+            else break;
         }
 
         if (subStr.length > 0) {
             if (isNaN(+subStr))
-                args.children.push(new SyntaxNode(
-                    SyntaxType.String,
-                    new TextRange(stream.current.range.start, stream.current.range.end),
+                return new StringNode(
+                    new TextRange(start.range.start, this.stream.current.range.end),
                     subStr
-                ));
+                );
             else
-                args.children.push(new SyntaxNode(
-                    SyntaxType.Number,
-                    new TextRange(stream.current.range.start, stream.current.range.end),
-                    subStr
-                ));
-            subStr = '';
+                return new NumberNode(
+                    new TextRange(start.range.start, this.stream.current.range.end),
+                    +subStr
+                );
         }
     }
-
-    while (stream.consume(TokenType.Newline) || stream.consume(TokenType.Whitespace)) { }
-    if (args.children.length === 0) return new SyntaxNode(SyntaxType.EmptyArgs, new TextRange(stream.current.range.start, stream.current.range.start));
-
-    args.range.end = args.children[args.children.length - 1].range.end;
-    return args;
-}
-
-function pipedArgs(stream: TokenStream, text: string, errors: ParserError[]) {
-    const args = new SyntaxNode(SyntaxType.Args, new TextRange(stream.current.range.start, stream.current.range.end));
-    let node;
-    while (stream.consume(TokenType.Pipe)) {
-        node = pipedConcatAll(stream, text, errors);
-        if (isErrorNode(node)) return node;
-
-        args.children.push(node);
-
-        while (stream.consume(TokenType.Newline) || stream.consume(TokenType.Whitespace)) { }
-    }
-
-    if (args.children.length === 0) return new SyntaxNode(SyntaxType.EmptyArgs, new TextRange(stream.current.range.start, stream.current.range.start));
-
-    args.range.end = args.children[args.children.length - 1].range.end;
-    return args;
-}
-
-function pipedConcatAll(stream: TokenStream, text: string, errors: ParserError[]) {
-    const root = new SyntaxNode(SyntaxType.Concat, new TextRange(stream.current.range.start, stream.current.range.end));
-    let newNode;
-    let lastPos = stream.pos;
-
-    while (!stream.eos()) {
-        lastPos = stream.pos;
-
-        newNode = codeBlock(stream, text, errors);
-        if (lastPos === stream.pos) {
-            // If first match in codeBlock didn't match, ignore error and resume checking
-            newNode = textBlock(stream, text);
-        }
-
-        if (newNode)
-            if (isErrorNode(newNode)) {
-                errors.push(createError(newNode));
-            }
-            else {
-                // The article node needs sub node for checking
-                if (isSyntaxNodeType(newNode, SyntaxType.Article)) {
-                    const articleChild = pipedConcatAll(stream, text, errors);
-                    if (articleChild) {
-                        if (isSyntaxNodeType(articleChild, SyntaxType.EmptyArgs))
-                            newNode.right = new SyntaxNode(
-                                SyntaxType.EmptyString,
-                                new TextRange(stream.current.range.start, stream.current.range.end)
-                            );
-                        else
-                            newNode.right = articleChild;
-                        newNode.range.end = newNode.right.range.end;
-                    }
-                }
-                root.children.push(newNode);
-            }
-
-        while (stream.consume(TokenType.Newline) || stream.consume(TokenType.Whitespace)) { }
-
-        if (lastPos === stream.pos) break;
-    }
-
-    if (root.children.length === 0)
-        return new SyntaxNode(SyntaxType.EmptyArgs, new TextRange(stream.current.range.start, stream.current.range.start));
-    if (root.children.length === 1)
-        return root.left;
-
-    root.range.end = root.children[root.children.length - 1].range.end;
-    return root;
 }

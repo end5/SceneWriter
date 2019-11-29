@@ -5,13 +5,13 @@ export enum TokenType {
     BracketOpen = 'bracket open',
     BracketClose = 'bracket close',
     Pipe = 'pipe',
+    QuestionMark = 'question mark',
     Dot = 'dot',
     String = 'string',
-    Whitespace = 'whitespace',
-    Arg = 'argument',
+    Space = 'whitespace',
+    Identity = 'identity',
     Newline = 'newline',
-    Error = 'error',
-    Article = 'article'
+    Error = 'error'
 }
 
 export interface Token<T extends TokenType = TokenType> {

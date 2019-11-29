@@ -9,7 +9,7 @@ export function test(name: string, text: string, obj: Record<string, any>, resul
 
     const parser = new Parser(lexResult.map((state) => state.token), text, obj);
     const parserResult = parser.parse();
-    const parserText = parserResult.node.map(n => n.value).join();
+    const parserText = parserResult.root.value.map(n => n.value).join();
 
     if (parserText === result)
         console.log('-- ' + name + ' ... Success');
@@ -17,6 +17,7 @@ export function test(name: string, text: string, obj: Record<string, any>, resul
         console.log('-- ' + name + ' ... Failed');
         print(lexResult, parserResult);
     }
+    console.log(' - ' + text + ' -> ' + parserResult.root.toCode());
 }
 
 function print(lex: LexerState[], parse: ParserResult) {
@@ -31,7 +32,9 @@ function print(lex: LexerState[], parse: ParserResult) {
         );
 
     console.log('| -- Parser');
-    console.log('| ' + parse.node.map(n => n.value).join());
+    console.log('| ' + parse.root.value.map(n => n.value).join());
+    console.log('| -- Code');
+    console.log('| ' + parse.root.toCode());
 
     console.log('| -- Errors');
     for (const error of parse.errors)

@@ -34,15 +34,47 @@ export type FuncNodes = EvalNode | ExistsNode;// | RangeNode | EqualsNode;
 
 export class ConcatNode extends Node<NodeType.Concat,
     StringNode[],
-    (FuncNodes | StringNode)[]> { }
+    (FuncNodes | StringNode)[]> {
+
+    public toCode(): string {
+        // return this.children.map((child) => child.toCode()).join('\n');
+        return this.children.map((child) => child.toCode()).join(' + ');
+    }
+}
 
 export class EvalNode extends Node<NodeType.Eval,
     StringNode[],
-    [RetrieveNode | AccessNode, (StringNode | NumberNode)[], FuncChild[]]> { }
+    [RetrieveNode | AccessNode, (StringNode | NumberNode)[], FuncChild[]]> {
+
+    public toCode(): string {
+        if (this.children[1].length === 0 && this.children[2].length === 0)
+            return this.children[0].toCode() + '();';
+        else
+            return this.children[0].toCode() +
+                '([' +
+                this.children[1].map((child) => child.toCode()).join(', ') +
+                '], [' +
+                this.children[2].map((child) => child.toCode()).join(', ') +
+                ']);';
+    }
+}
 
 export class ExistsNode extends Node<NodeType.Exists,
     StringNode[],
-    [RetrieveNode | AccessNode, [FuncChild, FuncChild?]]> { }
+    [RetrieveNode | AccessNode, [FuncChild, FuncChild?]]> {
+
+    public toCode(): string {
+        return this.children[0].toCode() + ' ? ' +
+            this.children[1][0].toCode() +
+            ' : ' +
+           ( this.children[1][1] ? this.children[1][1]!.toCode() : '""');
+        // return 'if (' + this.children[0].toCode() + ') {\n' +
+        //     this.children[1][0].toCode() +
+        //     '\n}\nelse {\n' +
+        //     this.children[1][0].toCode() +
+        //     '\n}';
+    }
+}
 
 export class RangeNode extends Node<NodeType.Range,
     StringNode[],
@@ -56,17 +88,29 @@ export class AccessNode extends Node<NodeType.Access, any, [RetrieveNode | Acces
     public constructor(range: TextRange, value: any, children: [RetrieveNode | AccessNode, IdentityNode]) {
         super(NodeType.Access, range, value, children);
     }
+
+    public toCode(): string {
+        return this.children[0].toCode() + '.' + this.children[1].toCode();
+    }
 }
 
 export class RetrieveNode extends Node<NodeType.Retrieve, any, IdentityNode> {
     public constructor(range: TextRange, value: any, children: IdentityNode) {
         super(NodeType.Retrieve, range, value, children);
     }
+
+    public toCode(): string {
+        return this.children.toCode();
+    }
 }
 
 export class NumberNode extends Node<NodeType.Number, number, never[]> {
     public constructor(range: TextRange, value: number) {
         super(NodeType.Number, range, value, []);
+    }
+
+    public toCode(): string {
+        return this.value + '';
     }
 }
 
@@ -75,9 +119,18 @@ export class StringNode extends Node<NodeType.String, string, never[]> {
         super(NodeType.String, range, value, []);
     }
 
+    public toCode(): string {
+        return '"' + this.value + '"';
+    }
+}
+
 export class IdentityNode extends Node<NodeType.Identity, string, never[]> {
     public constructor(range: TextRange, value: string) {
         super(NodeType.Identity, range, value, []);
+    }
+
+    public toCode(): string {
+        return this.value;
     }
 }
 

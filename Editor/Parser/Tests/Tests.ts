@@ -83,3 +83,9 @@ test('Exists - false',
     { color: undefined },
     'blue'
 );
+
+test('Exists - missing',
+    '[color?|has color]',
+    { color: undefined },
+    ''
+);

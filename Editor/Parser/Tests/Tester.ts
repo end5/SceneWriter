@@ -9,7 +9,7 @@ export function test(name: string, text: string, obj: Record<string, any>, resul
 
     const parser = new Parser(lexResult.map((state) => state.token), text, obj);
     const parserResult = parser.parse();
-    const parserText = parserResult.root.value.map(n => n.value).join();
+    const parserText = parserResult.root.value.map(n => n.value).join('');
 
     if (parserText === result)
         console.log('-- ' + name + ' ... Success');

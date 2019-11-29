@@ -89,3 +89,23 @@ test('Exists - missing',
     { color: undefined },
     ''
 );
+
+test('Concat',
+    'Hi! My name is [pc.name]. How are you?',
+    { pc: { name: 'Thomas' } },
+    'Hi! My name is Thomas. How are you?'
+);
+
+test('Code - Quotes',
+    '"Hi! My name is [pc.name]. How are you?"',
+    { pc: { name: 'Thomas' } },
+    '"Hi! My name is Thomas. How are you?"'
+);
+
+test('Code - Newline',
+    `"Welcome to [store.name]. My name is [pc.name]. Is there anything I can help you with today?"  
+You promptly exit the store.`,
+    { store: { name: 'TipTop' },  pc: { name: 'Thomas' } },
+    `"Welcome to TipTop. My name is Thomas. Is there anything I can help you with today?"  
+You promptly exit the store.`
+);

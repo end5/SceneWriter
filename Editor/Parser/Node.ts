@@ -152,7 +152,7 @@ export class StringNode extends Node<NodeType.String, string, never[]> {
     }
 
     public toCode(): string {
-        return '"' + this.value + '"';
+        return '"' + this.value.replace('"', '\\"').replace('\'', '\\\'').replace('\n', '\\n') + '"';
     }
 }
 

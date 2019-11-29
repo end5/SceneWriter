@@ -162,7 +162,7 @@ export class Parser {
         let identityNode = this.identityBlock();
         if (isErrorNode(identityNode)) return identityNode;
 
-        if (this.stream.consume(TokenType.QuestionMark)) {
+        if (this.stream.consume(TokenType.QuestionMark) || typeof identityNode.value === 'boolean') {
             const resultNodes = this.resultBlock();
 
             if (resultNodes.length === 0)

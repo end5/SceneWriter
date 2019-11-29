@@ -1,6 +1,7 @@
 import { TextRange } from "./TextRange";
 
 export enum NodeType {
+    Identity = 'identity',
     String = 'string',
     Number = 'number',
     Concat = 'concat',
@@ -51,14 +52,14 @@ export class EqualsNode extends Node<NodeType.Equals,
     StringNode[],
     [RetrieveNode | AccessNode, (StringNode | NumberNode)[], FuncChild[]]> { }
 
-export class AccessNode extends Node<NodeType.Access, any, [RetrieveNode | AccessNode, StringNode]> {
-    public constructor(range: TextRange, value: any, children: [RetrieveNode | AccessNode, StringNode]) {
+export class AccessNode extends Node<NodeType.Access, any, [RetrieveNode | AccessNode, IdentityNode]> {
+    public constructor(range: TextRange, value: any, children: [RetrieveNode | AccessNode, IdentityNode]) {
         super(NodeType.Access, range, value, children);
     }
 }
 
-export class RetrieveNode extends Node<NodeType.Retrieve, any, StringNode> {
-    public constructor(range: TextRange, value: any, children: StringNode) {
+export class RetrieveNode extends Node<NodeType.Retrieve, any, IdentityNode> {
+    public constructor(range: TextRange, value: any, children: IdentityNode) {
         super(NodeType.Retrieve, range, value, children);
     }
 }
@@ -72,6 +73,11 @@ export class NumberNode extends Node<NodeType.Number, number, never[]> {
 export class StringNode extends Node<NodeType.String, string, never[]> {
     public constructor(range: TextRange, value: string) {
         super(NodeType.String, range, value, []);
+    }
+
+export class IdentityNode extends Node<NodeType.Identity, string, never[]> {
+    public constructor(range: TextRange, value: string) {
+        super(NodeType.Identity, range, value, []);
     }
 }
 

@@ -1,7 +1,8 @@
 import { TokenType, Token } from "./Token";
 import { TokenStream } from './TokenStream';
 import { TextRange } from './TextRange';
-import { NodeType, StringNode, ErrorNode, isErrorNode, NumberNode, AccessNode, RetrieveNode, ConcatNode, ExistsNode, EvalNode, FuncChild } from "./Node";
+import { NodeType, StringNode, ErrorNode, isErrorNode, NumberNode, AccessNode, RetrieveNode, ConcatNode, ExistsNode, EvalNode, FuncChild, FuncNodes, IdentityNode } from "./Node";
+import { ParserObject } from "./ParserObject";
 
 export interface ParserError {
     range: TextRange;
@@ -9,7 +10,7 @@ export interface ParserError {
 }
 
 export interface ParserResult {
-    node: StringNode[];
+    root: ConcatNode;
     errors: ParserError[];
 }
 
@@ -25,16 +26,26 @@ export class Parser {
         this.globals = globals;
     }
 
-    public parse() {
+    public parse(): ParserResult {
         if (this.stream.eos())
-            return { node: [new StringNode(new TextRange(), '')], errors: [] };
+            return { root: this.empty(), errors: [] };
 
         const root = this.concatAll();
         const errors = this.errors;
         if (!root)
-            return { node: [new StringNode(new TextRange(), '')], errors };
+            return { root: this.empty(), errors };
 
-        return { node: root, errors };
+        return { root, errors };
+    }
+
+    private empty(range = new TextRange()) {
+        const result = new StringNode(range, '');
+        return new ConcatNode(
+            NodeType.Concat,
+            range,
+            [result],
+            [result]
+        );
     }
 
     private createError(node: ErrorNode): ParserError {
@@ -91,14 +102,12 @@ export class Parser {
             else
                 result.push(...child.value);
 
-        return result;
-
-        // return new ConcatNode(
-        //     NodeType.Concat,
-        //     new TextRange(arr[0].range.start, arr[arr.length - 1].range.end),
-        //     result,
-        //     arr
-        // );
+        return new ConcatNode(
+            NodeType.Concat,
+            new TextRange(arr[0].range.start, arr[arr.length - 1].range.end),
+            result,
+            arr
+        );
     }
 
     private textBlock() {
@@ -409,7 +418,7 @@ export class Parser {
     private getIdentity() {
         if (this.stream.match(TokenType.Identity)) {
             const token = this.stream.consume(TokenType.Identity)!;
-            return new StringNode(
+            return new IdentityNode(
                 new TextRange(token.range.start, token.range.end),
                 this.getText(token)
             );

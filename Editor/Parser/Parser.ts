@@ -178,11 +178,14 @@ export class Parser {
                     '2 results'
                 );
 
-            const resultNode = resultNodes[identityNode.value ? 0 : 1];
+            let resultNode = resultNodes[identityNode.value ? 0 : 1]
+            if (resultNode === undefined) {
+                resultNode = this.empty(new TextRange(resultNodes[0].range.end, resultNodes[0].range.end));
+            }
 
             return new ExistsNode(
                 NodeType.Exists,
-                new TextRange(identityNode.range.start, resultNodes[1].range.end),
+                new TextRange(identityNode.range.start, resultNodes[resultNodes.length - 1].range.end),
                 resultNode.value,
                 [identityNode, resultNodes as [FuncChild, FuncChild?]]
             );

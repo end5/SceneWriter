@@ -35,6 +35,9 @@ export type FuncNodes = EvalNode | ExistsNode;// | RangeNode | EqualsNode;
 export class ConcatNode extends Node<NodeType.Concat,
     StringNode[],
     (FuncNodes | StringNode)[]> {
+    public constructor(range: TextRange, value: StringNode[], children: (FuncNodes | StringNode)[]) {
+        super(NodeType.Concat, range, value, children);
+    }
 
     public toCode(): string {
         // return this.children.map((child) => child.toCode()).join('\n');
@@ -45,6 +48,10 @@ export class ConcatNode extends Node<NodeType.Concat,
 export class EvalNode extends Node<NodeType.Eval,
     StringNode[],
     [RetrieveNode | AccessNode, (StringNode | NumberNode)[], FuncChild[]]> {
+
+    public constructor(range: TextRange, value: StringNode[], children: [RetrieveNode | AccessNode, (StringNode | NumberNode)[], FuncChild[]]) {
+        super(NodeType.Eval, range, value, children);
+    }
 
     public toCode(): string {
         if (this.children[1].length === 0 && this.children[2].length === 0)
@@ -63,11 +70,15 @@ export class ExistsNode extends Node<NodeType.Exists,
     StringNode[],
     [RetrieveNode | AccessNode, [FuncChild, FuncChild?]]> {
 
+    public constructor(range: TextRange, value: StringNode[], children: [RetrieveNode | AccessNode, [FuncChild, FuncChild?]]) {
+        super(NodeType.Exists, range, value, children);
+    }
+
     public toCode(): string {
         return this.children[0].toCode() + ' ? ' +
             this.children[1][0].toCode() +
             ' : ' +
-           ( this.children[1][1] ? this.children[1][1]!.toCode() : '""');
+            (this.children[1][1] ? this.children[1][1]!.toCode() : '""');
         // return 'if (' + this.children[0].toCode() + ') {\n' +
         //     this.children[1][0].toCode() +
         //     '\n}\nelse {\n' +
@@ -78,11 +89,21 @@ export class ExistsNode extends Node<NodeType.Exists,
 
 export class RangeNode extends Node<NodeType.Range,
     StringNode[],
-    [RetrieveNode | AccessNode, NumberNode[], FuncChild[]]> { }
+    [RetrieveNode | AccessNode, NumberNode[], FuncChild[]]> {
+
+    public constructor(range: TextRange, value: StringNode[], children: [RetrieveNode | AccessNode, NumberNode[], FuncChild[]]) {
+        super(NodeType.Range, range, value, children);
+    }
+}
 
 export class EqualsNode extends Node<NodeType.Equals,
     StringNode[],
-    [RetrieveNode | AccessNode, (StringNode | NumberNode)[], FuncChild[]]> { }
+    [RetrieveNode | AccessNode, (StringNode | NumberNode)[], FuncChild[]]> {
+
+    public constructor(range: TextRange, value: StringNode[], children: [RetrieveNode | AccessNode, (StringNode | NumberNode)[], FuncChild[]]) {
+        super(NodeType.Equals, range, value, children);
+    }
+}
 
 export class AccessNode extends Node<NodeType.Access, any, [RetrieveNode | AccessNode, IdentityNode]> {
     public constructor(range: TextRange, value: any, children: [RetrieveNode | AccessNode, IdentityNode]) {

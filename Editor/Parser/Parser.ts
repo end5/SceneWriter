@@ -41,7 +41,6 @@ export class Parser {
     private empty(range = new TextRange()) {
         const result = new StringNode(range, '');
         return new ConcatNode(
-            NodeType.Concat,
             range,
             [result],
             [result]
@@ -103,7 +102,6 @@ export class Parser {
                 result.push(...child.value);
 
         return new ConcatNode(
-            NodeType.Concat,
             new TextRange(arr[0].range.start, arr[arr.length - 1].range.end),
             result,
             arr
@@ -184,7 +182,6 @@ export class Parser {
             }
 
             return new ExistsNode(
-                NodeType.Exists,
                 new TextRange(identityNode.range.start, resultNodes[resultNodes.length - 1].range.end),
                 resultNode.value,
                 [identityNode, resultNodes as [FuncChild, FuncChild?]]
@@ -248,7 +245,6 @@ export class Parser {
             }
 
             return new EvalNode(
-                NodeType.Eval,
                 new TextRange(identityNode.range.start, rangeEnd),
                 resultNode,
                 [identityNode, argNodes, resultNodes]
@@ -411,7 +407,6 @@ export class Parser {
                 result.push(...child.value);
 
         return new ConcatNode(
-            NodeType.Concat,
             new TextRange(arr[0].range.start, arr[arr.length - 1].range.end),
             result,
             arr

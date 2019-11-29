@@ -258,7 +258,7 @@ export class Parser {
         let rootNode;
 
         // Check result
-        if (!this.globals[identityNode.value])
+        if (!(identityNode.value in this.globals))
             return new ErrorNode(
                 new TextRange(identityNode.range.start, identityNode.range.end),
                 identityNode.value + ' does not exist in globals'

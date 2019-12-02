@@ -2,110 +2,124 @@ import { test } from "./Tester";
 
 test('Retrieve string',
     '[name]',
-    { name: 'Test' },
+    { name: { value: 'Test' } },
     'Test'
 );
 
 test('Retrieve number',
     '[str]',
-    { str: 100 },
+    { str: { value: 100 } },
     '100'
 );
 
 test('Retrieve function',
     '[isRed]',
-    { isRed: () => 'red' },
+    { isRed: { value: () => 'red' } },
     'red'
 );
 
 test('Access string',
     '[pc.name]',
-    { pc: { name: 'Test' } },
+    { pc: { children: { name: { value: 'Test' } } } },
     'Test'
 );
 
 test('Access number',
     '[pc.str]',
-    { pc: { str: 100 } },
+    { pc: { children: { str: { value: 100 } } } },
     '100'
 );
 
 test('Access function',
     '[pc.isRed]',
-    { pc: { isRed: () => 'red' } },
+    { pc: { children: { isRed: { value: () => 'red' } } } },
     'red'
 );
 
 test('Function - Create',
     '[isRed]',
-    { isRed: (args: any[]) => 'red' },
+    { isRed: { value: (args: any[]) => 'red' } },
     'red'
 );
 
 test('Function - Create + Args',
     '[isRed 0]',
-    { isRed: (args: any[]) => 'red' + args[0] },
+    { isRed: { value: (args: any[]) => 'red' + args[0] } },
     'red0'
 );
 
 test('Function - Selector[0]',
     '[isRed|red|blue]',
-    { isRed: (args: any[], res: string[]) => 0 },
+    { isRed: { value: (args: any[], res: string[]) => 0 } },
     'red'
 );
 
 test('Function - Selector[1]',
     '[isRed|red|blue]',
-    { isRed: (args: any[], res: string[]) => 1 },
+    { isRed: { value: (args: any[], res: string[]) => 1 } },
     'blue'
 );
 
 test('Function - Match[0]',
     '[color red|red|blue]',
-    { color: (args: any[], res: string[]) => res.findIndex(r => r === args[0]) },
+    { color: { value: (args: any[], res: string[]) => res.findIndex(r => r === args[0]) } },
     'red'
 );
 
 test('Function - Match[1]',
     '[color blue|red|blue]',
-    { color: (args: any[], res: string[]) => res.findIndex(r => r === args[0]) },
+    { color: { value: (args: any[], res: string[]) => res.findIndex(r => r === args[0]) } },
     'blue'
 );
 
-test('Exists - true',
-    '[color?|red|blue]',
-    { color: true },
+test('Boolean - true',
+    '[color|red|blue]',
+    { color: { value: true } },
     'red'
 );
 
-test('Exists - false',
-    '[color?|red|blue]',
-    { color: undefined },
+test('Boolean - false',
+    '[color|red|blue]',
+    { color: { value: false } },
     'blue'
-);
-
-test('Exists - missing',
-    '[color?|has color]',
-    { color: undefined },
-    ''
 );
 
 test('Concat',
     'Hi! My name is [pc.name]. How are you?',
-    { pc: { name: 'Thomas' } },
+    { pc: { children: { name: { value: 'Thomas' } } } },
     'Hi! My name is Thomas. How are you?'
 );
 
 test('Code - Quotes',
     '"Hi! My name is [pc.name]. How are you?"',
-    { pc: { name: 'Thomas' } },
+    { pc: { children: { name: { value: 'Thomas' } } } },
     '"Hi! My name is Thomas. How are you?"'
 );
 
 test('Code - Newline',
     `"Welcome to [store.name]. My name is [pc.name]. Is there anything I can help you with today?"  
 You promptly exit the store.`,
-    { store: { name: 'TipTop' },  pc: { name: 'Thomas' } },
+    { store: { children: { name: { value: 'TipTop' } } }, pc: { children: { name: { value: 'Thomas' } } } },
     `"Welcome to TipTop. My name is Thomas. Is there anything I can help you with today?"  
 You promptly exit the store.`
+);
+
+test('Super',
+    `[store.open|"Welcome to [store.name]. My name is [person.name].
+Is there anything I can help you with today?"|The sign says closed.]`,
+    {
+        store: {
+            children: {
+                open: { value: true },
+                name: { value: 'TipTop' }
+            }
+        },
+        person: {
+            children: {
+                name: { value: 'Thomas' }
+            }
+        }
+    },
+    `"Welcome to TipTop. My name is Thomas.
+Is there anything I can help you with today?"`
 );

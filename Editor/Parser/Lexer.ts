@@ -152,9 +152,9 @@ function tokenize(stream: StringStream, state: LexerState) {
         else if (stream.eat(TokenSymbol.Dot)) {
             return TokenType.Dot;
         }
-        else if (stream.eat(TokenSymbol.QuestionMark)) {
-            return TokenType.QuestionMark;
-        }
+        // else if (stream.eat(TokenSymbol.QuestionMark)) {
+        //     return TokenType.QuestionMark;
+        // }
         else if (stream.eat(TokenSymbol.Pipe)) {
             // Move state from Identity to Results
             state.codeStack.unshift(CodeState.Results);
@@ -166,7 +166,7 @@ function tokenize(stream: StringStream, state: LexerState) {
                 TokenSymbol.Tab,
                 TokenSymbol.Newline,
                 TokenSymbol.Dot,
-                TokenSymbol.QuestionMark,
+                // TokenSymbol.QuestionMark,
                 TokenSymbol.Pipe,
                 TokenSymbol.BracketClose,
             )) {

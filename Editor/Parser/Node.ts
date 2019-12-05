@@ -1,5 +1,5 @@
+import { Symbols } from "./Symbol";
 import { TextRange } from "./TextRange";
-import { ParserObject } from "./ParserObject";
 
 export enum NodeType {
     Identity = 'identity',
@@ -31,6 +31,7 @@ export function isErrorNode(node: Node<NodeType, any, any>): node is ErrorNode {
     return node.type === NodeType.Error;
 }
 
+export type AllNodes = FuncChild | NumberNode | IdentityNode | AccessNode | RetrieveNode;
 export type FuncChild = StringNode | ConcatNode | FuncNodes;
 export type FuncNodes = EvalNode | ReturnNode | ExistsNode;
 
@@ -48,34 +49,46 @@ export class ConcatNode extends Node<NodeType.Concat,
 
 export class EvalNode extends Node<NodeType.Eval,
     StringNode[],
-    [RetrieveNode | AccessNode, (StringNode | NumberNode)[], FuncChild[]]> {
+    [RetrieveNode | AccessNode, (StringNode | NumberNode)[], ConcatNode[]]> {
 
-    public constructor(range: TextRange, result: StringNode[], children: [RetrieveNode | AccessNode, (StringNode | NumberNode)[], FuncChild[]]) {
+    public constructor(range: TextRange, result: StringNode[], children: [RetrieveNode | AccessNode, (StringNode | NumberNode)[], ConcatNode[]]) {
         super(NodeType.Eval, range, result, children);
     }
 
     public toCode(): string {
-        if (this.children[1].length === 0 && this.children[2].length === 0)
-            return this.children[0].toCode() + '()';
-        else if (this.children[1].length > 0 && this.children[2].length > 0)
-            return this.children[0].toCode() +
-                '([' +
-                this.children[1].map((child) => child.toCode()).join(', ') +
-                '], [' +
-                this.children[2].map((child) => child.toCode()).join(', ') +
-                '])';
-        else if (this.children[1].length > 0)
-            return this.children[0].toCode() + '(' +
-                this.children[1].map((child) => child.toCode()).join(', ') +
-                ')';
-        else
-            return this.children[0].toCode() + '(' +
-                this.children[2].map((child) => child.toCode()).join(', ') +
-                ')';
+        const result = this.children[0].result;
+        if (result.type === 'function' && result.toCode) {
+            return result.toCode(
+                this.children[0].toCode(),
+                this.children[1].map((child) => child.toCode()),
+                this.children[2].map((child) => child.toCode())
+            );
+        }
+        else {
+            if (this.children[1].length === 0 && this.children[2].length === 0)
+                return this.children[0].toCode() + '()';
+            else if (this.children[1].length > 0 && this.children[2].length > 0)
+                return this.children[0].toCode() +
+                    '([' +
+                    this.children[1].map((child) => child.toCode()).join(', ') +
+                    '], [' +
+                    this.children[2].map((child) => child.toCode()).join(', ') +
+                    '])';
+            else if (this.children[1].length > 0)
+                return this.children[0].toCode() + '(' +
+                    this.children[1].map((child) => child.toCode()).join(', ') +
+                    ')';
+            else
+                return this.children[0].toCode() + '(' +
+                    this.children[2].map((child) => child.toCode()).join(', ') +
+                    ')';
+        }
     }
 }
 
-export class ReturnNode extends Node<NodeType.Return, StringNode[], [RetrieveNode | AccessNode]> {
+export class ReturnNode extends Node<NodeType.Return,
+    StringNode[],
+    [RetrieveNode | AccessNode]> {
     public constructor(range: TextRange, result: StringNode[], children: [RetrieveNode | AccessNode]) {
         super(NodeType.Return, range, result, children);
     }
@@ -87,9 +100,9 @@ export class ReturnNode extends Node<NodeType.Return, StringNode[], [RetrieveNod
 
 export class ExistsNode extends Node<NodeType.Exists,
     StringNode[],
-    [RetrieveNode | AccessNode, [FuncChild, FuncChild?]]> {
+    [RetrieveNode | AccessNode, [FuncChild, FuncChild]]> {
 
-    public constructor(range: TextRange, result: StringNode[], children: [RetrieveNode | AccessNode, [FuncChild, FuncChild?]]) {
+    public constructor(range: TextRange, result: StringNode[], children: [RetrieveNode | AccessNode, [FuncChild, FuncChild]]) {
         super(NodeType.Exists, range, result, children);
     }
 
@@ -101,8 +114,10 @@ export class ExistsNode extends Node<NodeType.Exists,
     }
 }
 
-export class AccessNode extends Node<NodeType.Access, ParserObject, [RetrieveNode | AccessNode, IdentityNode]> {
-    public constructor(range: TextRange, result: ParserObject, children: [RetrieveNode | AccessNode, IdentityNode]) {
+export class AccessNode extends Node<NodeType.Access,
+    Symbols,
+    [RetrieveNode | AccessNode, IdentityNode]> {
+    public constructor(range: TextRange, result: Symbols, children: [RetrieveNode | AccessNode, IdentityNode]) {
         super(NodeType.Access, range, result, children);
     }
 
@@ -111,8 +126,8 @@ export class AccessNode extends Node<NodeType.Access, ParserObject, [RetrieveNod
     }
 }
 
-export class RetrieveNode extends Node<NodeType.Retrieve, ParserObject, IdentityNode> {
-    public constructor(range: TextRange, result: ParserObject, children: IdentityNode) {
+export class RetrieveNode extends Node<NodeType.Retrieve, Symbols, IdentityNode> {
+    public constructor(range: TextRange, result: Symbols, children: IdentityNode) {
         super(NodeType.Retrieve, range, result, children);
     }
 

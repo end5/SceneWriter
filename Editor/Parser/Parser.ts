@@ -1,8 +1,8 @@
-import { TokenType, Token } from "./Token";
-import { TokenStream } from './TokenStream';
+import { AccessNode, ConcatNode, ErrorNode, EvalNode, ExistsNode, FuncChild, IdentityNode, isErrorNode, NodeType, NumberNode, RetrieveNode, ReturnNode, StringNode } from "./Node";
+import { Symbols } from "./Symbol";
 import { TextRange } from './TextRange';
-import { NodeType, StringNode, ErrorNode, isErrorNode, NumberNode, AccessNode, RetrieveNode, ConcatNode, ExistsNode, EvalNode, FuncChild, IdentityNode, ReturnNode } from "./Node";
-import { ParserObject } from "./ParserObject";
+import { Token, TokenType } from "./Token";
+import { TokenStream } from './TokenStream';
 
 export interface ParserError {
     range: TextRange;
@@ -17,12 +17,12 @@ export interface ParserResult {
 export class Parser {
     private stream: TokenStream;
     private errors: ParserError[] = [];
-    private text: string;
-    private globals: Record<string, ParserObject>;
+    private textStr: string;
+    private globals: Record<string, Symbols>;
 
-    public constructor(tokens: Token[], text: string, globals: Record<string, ParserObject>) {
+    public constructor(tokens: Token[], text: string, globals: Record<string, Symbols>) {
         this.stream = new TokenStream(tokens);
-        this.text = text;
+        this.textStr = text;
         this.globals = globals;
     }
 
@@ -30,7 +30,7 @@ export class Parser {
         if (this.stream.eos())
             return { root: this.empty(), errors: [] };
 
-        const root = this.concatAll();
+        const root = this.concat();
         const errors = this.errors;
         if (!root)
             return { root: this.empty(), errors };
@@ -40,7 +40,7 @@ export class Parser {
 
     /**
      * A ConcatNode with one blank StringNode with specified range
-     * @param range 
+     * @param range
      */
     private empty(range = new TextRange()) {
         const result = new StringNode(range, '');
@@ -56,32 +56,32 @@ export class Parser {
     }
 
     private getText(token: Token) {
-        return this.text.slice(token.range.start.col + token.offset, token.range.end.col + token.offset);
+        return this.textStr.slice(token.range.start.col + token.offset, token.range.end.col + token.offset);
     }
 
-    private concatAll() {
+    private concat() {
         let newNode;
         const arr = [];
 
         while (!this.stream.eos()) {
             // Search until something is found
-            newNode = this.codeBlock();
+            newNode = this.code();
             if (!newNode) {
-                newNode = this.textBlock();
-            }
-
-            if (newNode) {
-                if (isErrorNode(newNode)) {
-                    this.errors.push(this.createError(newNode));
-                }
-                else {
-                    arr.push(newNode);
-                }
+                newNode = this.text();
             }
 
             // Force the stream forward in case nothing was found
-            if (!newNode)
+            if (!newNode) {
                 this.stream.pos++;
+                continue;
+            }
+
+            if (isErrorNode(newNode)) {
+                this.errors.push(this.createError(newNode));
+            }
+            else {
+                arr.push(newNode);
+            }
         }
 
         // Nothing so force empty
@@ -110,7 +110,7 @@ export class Parser {
         );
     }
 
-    private textBlock() {
+    private text() {
         /////////////////
         // Compute result
         /////////////////
@@ -130,7 +130,7 @@ export class Parser {
                 escapeOffset = 2;
             else
                 escapeOffset = 0;
-            subText += this.text.slice(token.range.start.col + token.offset + escapeOffset, token.range.end.col + token.offset);
+            subText += this.textStr.slice(token.range.start.col + token.offset + escapeOffset, token.range.end.col + token.offset);
             endToken = token;
         }
         if (endToken) {
@@ -142,12 +142,12 @@ export class Parser {
         return;
     }
 
-    private codeBlock() {
+    private code() {
         // Leave if no bracket
         const bracketOpenToken = this.stream.consume(TokenType.BracketOpen);
         if (!bracketOpenToken) return;
 
-        let codeNode = this.evalBlock();
+        const codeNode = this.eval();
         if (isErrorNode(codeNode)) return codeNode;
 
         // don't advance token stream on error
@@ -162,13 +162,13 @@ export class Parser {
         return codeNode;
     }
 
-    private evalBlock(): ErrorNode | ExistsNode | EvalNode | ReturnNode {
+    private eval(): ErrorNode | ExistsNode | EvalNode | ReturnNode {
 
-        let identityNode = this.identityBlock();
+        const identityNode = this.access();
         if (isErrorNode(identityNode)) return identityNode;
 
-        const argNodes = this.argumentBlock();
-        const resultNodes = this.resultBlock();
+        const argNodes = this.arguments();
+        const resultNodes = this.results();
 
         let rangeEnd;
         if (resultNodes.length > 0)
@@ -182,26 +182,25 @@ export class Parser {
         // Check result
         /////////////////
 
-        if (!('value' in identityNode.result))
+        if (identityNode.result.type === 'object')
             return new ErrorNode(
                 new TextRange(identityNode.range.start, identityNode.range.end),
-                'parser object with value'
+                'symbol with object type'
             );
 
         /////////////////
 
-        if (typeof identityNode.result.value === 'function') {
+        if (identityNode.result.type === 'function') {
             /////////////////
             // Compute result
             /////////////////
 
             // Function result
-            const result = identityNode.result.value(
-                argNodes.map((child) => child.result),
-                resultNodes.reduce((arr, child) =>
-                    arr.concat(child.result.map((child) => child.result)),
-                    [] as string[]),
-            );
+            const calcArgs = argNodes.map((child) => child.result);
+            const calcResults = resultNodes.reduce((arr, child) =>
+                arr.concat(child.result.map((childStr) => childStr.result)),
+                [] as string[]);
+            const result = identityNode.result.value(calcArgs, calcResults);
 
             let resultNode;
             // If result was number, use it to pick the result node
@@ -228,7 +227,7 @@ export class Parser {
                 [identityNode, argNodes, resultNodes]
             );
         }
-        else if (typeof identityNode.result.value === 'boolean') {
+        else if (identityNode.result.type === 'boolean') {
             /////////////////
             // Check result
             /////////////////
@@ -249,21 +248,20 @@ export class Parser {
             // Compute result
             /////////////////
 
-            let resultNode = resultNodes[identityNode.result.value ? 0 : 1]
-            // No result, use empty
-            if (resultNode === undefined) {
-                resultNode = this.empty(new TextRange(resultNodes[0].range.end, resultNodes[0].range.end));
-            }
+            if (resultNodes.length === 1)
+                resultNodes.push(this.empty(new TextRange(resultNodes[0].range.end, resultNodes[0].range.end)));
+
+            const resultNode = resultNodes[identityNode.result.value ? 0 : 1];
 
             /////////////////
 
             return new ExistsNode(
                 new TextRange(identityNode.range.start, resultNodes[resultNodes.length - 1].range.end),
                 resultNode.result,
-                [identityNode, resultNodes as [FuncChild, FuncChild?]]
+                [identityNode, resultNodes as [FuncChild, FuncChild]]
             );
         }
-        else if (typeof identityNode.result.value === 'number' || typeof identityNode.result.value === 'string') {
+        else if (identityNode.result.type === 'number' || identityNode.result.type === 'string') {
             /////////////////
             // Compute result
             /////////////////
@@ -279,14 +277,14 @@ export class Parser {
 
             /////////////////
         }
-        
+
         return new ErrorNode(
             identityNode.range,
             'function, number or string'
         );
     }
 
-    private identityBlock() {
+    private access() {
         this.stream.whitespace();
 
         let identityNode = this.getIdentity();
@@ -373,7 +371,7 @@ export class Parser {
         return rootNode;
     }
 
-    private argumentBlock() {
+    private arguments() {
         const arr = [];
 
         if (this.stream.whitespace()) {
@@ -391,17 +389,21 @@ export class Parser {
         return arr;
     }
 
-    private resultBlock() {
+    private results() {
         this.stream.whitespace();
 
         const arr = [];
 
         if (this.stream.match(TokenType.Pipe)) {
-            // Consume Pipe then ResultConcat 
+            // Consume Pipe then ResultConcat
             let node;
             while (this.stream.consume(TokenType.Pipe)) {
+                this.stream.whitespace();
+
                 node = this.resultConcat();
                 arr.push(node);
+
+                this.stream.whitespace();
             }
         }
 
@@ -414,22 +416,19 @@ export class Parser {
 
         while (!this.stream.eos()) {
             // Search until something is found
-            newNode = this.codeBlock();
+            newNode = this.code();
             if (!newNode) {
-                newNode = this.textBlock();
+                newNode = this.text();
             }
 
-            if (newNode)
-                if (isErrorNode(newNode)) {
-                    this.errors.push(this.createError(newNode));
-                }
-                else {
-                    arr.push(newNode);
-                }
-
-            this.stream.whitespace();
-
             if (!newNode) break;
+
+            if (isErrorNode(newNode)) {
+                this.errors.push(this.createError(newNode));
+            }
+            else {
+                arr.push(newNode);
+            }
         }
 
         // Nothing so force empty

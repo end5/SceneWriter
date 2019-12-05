@@ -21,9 +21,6 @@ Tab =           '\t'
 Newline =       '\n'
 Escape =        '\'
 Dot =           '.'
-QuestionMark =  '?'
-Arrow =         '<'
-Equal =         '='
 Number =        '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'
 
 Decimal =       { Number } , Dot , Number , { Number }
@@ -32,29 +29,14 @@ Value =         Number | Decimal | ( String - ( Whitespace | Pipe | BracketClose
 Text =          String - ( Newline | BracketOpen )
 Whitespace =    Space | Tab | Newline
 
-ConcatAll = { CodeBlock | TextBlock | ConcatAll }
+Concat = { Newline | Code | Text | Concat }
 
-TextBlock = { Text | Newline }
+Code = BracketOpen , Access , [ Arguments ] , [ Results ] , BracketClose
 
-CodeBlock = BracketOpen , ( EvalBlock | ExistsBlock | RangeBlock | EqualBlock ) , BracketClose
+Access = { Whitespace } , Identity , { Dot , Identity }
 
-EvalBlock = IdentityBlock , [ ArgumentBlock ] , [ ResultBlock ]
+Arguments = { Whitespace , { Whitespace } , Value }
 
-ExistsBlock = IdentityBlock , QuestionMark , ResultBlock
+Results = { Whitespace } , { Pipe , { Whitespace } , [ ResultConcat ] , { Whitespace } }
 
-RangeBlock = IdentityBlock , Arrow , ArgumentBlock , ResultBlock
-
-EqualBlock = IdentityBlock , Equal , ArgumentBlock , ResultBlock
-
-IdentityBlock = { Whitespace } , Identity , { Dot , Identity }
-
-ArgumentBlock = { Whitespace , { Whitespace } , Value }
-
-ResultBlock = { Whitespace } , { Pipe , ResultConcat }
-
-ResultConcat = { CodeBlock | TextBlock | ResultConcat }
-
-
-[pc.str] -> pc.str([],[])
-[pc.str||] -> pc.str([],['',''])
-[pc.str 3||] -> pc.str([3],['',''])
+ResultConcat = { Newline | Code | Text | ResultConcat }

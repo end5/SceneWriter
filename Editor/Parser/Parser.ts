@@ -1,4 +1,4 @@
-import { AccessNode, ConcatNode, ErrorNode, EvalNode, ExistsNode, FuncChild, IdentityNode, isErrorNode, NodeType, NumberNode, RetrieveNode, ReturnNode, StringNode } from "./Node";
+import { AccessNode, ConcatNode, ConditionalNode, ErrorNode, EvalNode, FuncChild, FuncNodes, IdentityNode, isErrorNode, NodeType, NumberNode, RetrieveNode, ReturnNode, StringNode } from "./Node";
 import { Symbols } from "./Symbol";
 import { TextRange } from './TextRange';
 import { Token, TokenType } from "./Token";
@@ -59,6 +59,20 @@ export class Parser {
         return this.textStr.slice(token.range.start.col + token.offset, token.range.end.col + token.offset);
     }
 
+    /**
+     * Fold results into StringNode[]
+     * @param arr
+     */
+    private foldResults(arr: FuncChild[]) {
+        const result = [];
+        for (const child of arr)
+            if (child.type === NodeType.String)
+                result.push(child);
+            else
+                result.push(...child.result);
+        return result;
+    }
+
     private concat() {
         let newNode;
         const arr = [];
@@ -66,9 +80,8 @@ export class Parser {
         while (!this.stream.eos()) {
             // Search until something is found
             newNode = this.code();
-            if (!newNode) {
-                newNode = this.text();
-            }
+            if (!newNode) newNode = this.text();
+            if (!newNode) break;
 
             // Force the stream forward in case nothing was found
             if (!newNode) {
@@ -93,19 +106,9 @@ export class Parser {
         // Compute result
         /////////////////
 
-        // Merge results into StringNode[]
-        const result = [];
-        for (const child of arr)
-            if (child.type === NodeType.String)
-                result.push(child);
-            else
-                result.push(...child.result);
-
-        /////////////////
-
         return new ConcatNode(
             new TextRange(arr[0].range.start, arr[arr.length - 1].range.end),
-            result,
+            this.foldResults(arr),
             arr
         );
     }
@@ -162,7 +165,7 @@ export class Parser {
         return codeNode;
     }
 
-    private eval(): ErrorNode | ExistsNode | EvalNode | ReturnNode {
+    private eval(): ErrorNode | FuncNodes {
 
         const identityNode = this.access();
         if (isErrorNode(identityNode)) return identityNode;
@@ -255,7 +258,7 @@ export class Parser {
 
             /////////////////
 
-            return new ExistsNode(
+            return new ConditionalNode(
                 new TextRange(identityNode.range.start, resultNodes[resultNodes.length - 1].range.end),
                 resultNode.result,
                 [identityNode, resultNodes as [FuncChild, FuncChild]]
@@ -417,10 +420,7 @@ export class Parser {
         while (!this.stream.eos()) {
             // Search until something is found
             newNode = this.code();
-            if (!newNode) {
-                newNode = this.text();
-            }
-
+            if (!newNode) newNode = this.text();
             if (!newNode) break;
 
             if (isErrorNode(newNode)) {
@@ -440,19 +440,9 @@ export class Parser {
         // Compute result
         /////////////////
 
-        // Merge results into StringNode[]
-        const result = [];
-        for (const child of arr)
-            if (child.type === NodeType.String)
-                result.push(child);
-            else
-                result.push(...child.result);
-
-        /////////////////
-
         return new ConcatNode(
             new TextRange(arr[0].range.start, arr[arr.length - 1].range.end),
-            result,
+            this.foldResults(arr),
             arr
         );
     }
@@ -479,19 +469,16 @@ export class Parser {
         let subStr = "";
 
         const start = this.stream.current;
+        let last;
 
         while (true) {
             if (this.stream.match(TokenType.String)) {
                 subStr += this.getText(this.stream.current);
-                this.stream.consume(TokenType.String);
+                last = this.stream.consume(TokenType.String);
             }
             else if (this.stream.match(TokenType.Dot)) {
                 subStr += this.getText(this.stream.current);
-                this.stream.consume(TokenType.Dot);
-            }
-            else if (this.stream.match(TokenType.QuestionMark)) {
-                subStr += this.getText(this.stream.current);
-                this.stream.consume(TokenType.QuestionMark);
+                last = this.stream.consume(TokenType.Dot);
             }
             else break;
         }
@@ -499,12 +486,12 @@ export class Parser {
         if (subStr.length > 0) {
             if (isNaN(+subStr))
                 return new StringNode(
-                    new TextRange(start.range.start, this.stream.current.range.end),
+                    new TextRange(start.range.start, (last || start).range.end),
                     subStr
                 );
             else
                 return new NumberNode(
-                    new TextRange(start.range.start, this.stream.current.range.end),
+                    new TextRange(start.range.start, (last || start).range.end),
                     +subStr
                 );
         }

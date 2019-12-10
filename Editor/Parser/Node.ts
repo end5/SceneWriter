@@ -4,11 +4,12 @@ import { TextRange } from "./TextRange";
 export enum NodeType {
     Identity = 'identity',
     String = 'string',
+    Newline = 'newline',
     Number = 'number',
     Concat = 'concat',
     Eval = 'eval',
     Return = 'return',
-    Exists = 'exists',
+    Conditional = 'conditional',
     Range = 'range',
     Equals = 'equals',
     Retrieve = 'retrieve',
@@ -33,12 +34,13 @@ export function isErrorNode(node: Node<NodeType, any, any>): node is ErrorNode {
 
 export type AllNodes = FuncChild | NumberNode | IdentityNode | AccessNode | RetrieveNode;
 export type FuncChild = StringNode | ConcatNode | FuncNodes;
-export type FuncNodes = EvalNode | ReturnNode | ExistsNode;
+export type FuncNodes = EvalNode | ReturnNode | ConditionalNode;
+export type ResultNodes = StringNode;
 
 export class ConcatNode extends Node<NodeType.Concat,
-    StringNode[],
-    (FuncNodes | StringNode)[]> {
-    public constructor(range: TextRange, result: StringNode[], children: (FuncNodes | StringNode)[]) {
+    ResultNodes[],
+    FuncChild[]> {
+    public constructor(range: TextRange, result: ResultNodes[], children: FuncChild[]) {
         super(NodeType.Concat, range, result, children);
     }
 
@@ -48,10 +50,10 @@ export class ConcatNode extends Node<NodeType.Concat,
 }
 
 export class EvalNode extends Node<NodeType.Eval,
-    StringNode[],
+    ResultNodes[],
     [RetrieveNode | AccessNode, (StringNode | NumberNode)[], ConcatNode[]]> {
 
-    public constructor(range: TextRange, result: StringNode[], children: [RetrieveNode | AccessNode, (StringNode | NumberNode)[], ConcatNode[]]) {
+    public constructor(range: TextRange, result: ResultNodes[], children: [RetrieveNode | AccessNode, (StringNode | NumberNode)[], ConcatNode[]]) {
         super(NodeType.Eval, range, result, children);
     }
 
@@ -87,9 +89,9 @@ export class EvalNode extends Node<NodeType.Eval,
 }
 
 export class ReturnNode extends Node<NodeType.Return,
-    StringNode[],
+    ResultNodes[],
     [RetrieveNode | AccessNode]> {
-    public constructor(range: TextRange, result: StringNode[], children: [RetrieveNode | AccessNode]) {
+    public constructor(range: TextRange, result: ResultNodes[], children: [RetrieveNode | AccessNode]) {
         super(NodeType.Return, range, result, children);
     }
 
@@ -98,12 +100,12 @@ export class ReturnNode extends Node<NodeType.Return,
     }
 }
 
-export class ExistsNode extends Node<NodeType.Exists,
-    StringNode[],
+export class ConditionalNode extends Node<NodeType.Conditional,
+    ResultNodes[],
     [RetrieveNode | AccessNode, [FuncChild, FuncChild]]> {
 
-    public constructor(range: TextRange, result: StringNode[], children: [RetrieveNode | AccessNode, [FuncChild, FuncChild]]) {
-        super(NodeType.Exists, range, result, children);
+    public constructor(range: TextRange, result: ResultNodes[], children: [RetrieveNode | AccessNode, [FuncChild, FuncChild]]) {
+        super(NodeType.Conditional, range, result, children);
     }
 
     public toCode(): string {
@@ -146,13 +148,15 @@ export class NumberNode extends Node<NodeType.Number, number, never[]> {
     }
 }
 
+const escapePairs: [RegExp, string][] = [[/\n/g, '\\n'], [/'/g, '\\\''], [/"/g, '\\"']];
+
 export class StringNode extends Node<NodeType.String, string, never[]> {
     public constructor(range: TextRange, result: string) {
         super(NodeType.String, range, result, []);
     }
 
     public toCode(): string {
-        return '"' + this.result.replace('"', '\\"').replace('\'', '\\\'').replace('\n', '\\n') + '"';
+        return '"' + escapePairs.reduce((str, pair) => str.replace(pair[0], pair[1]), this.result) + '"';
     }
 }
 

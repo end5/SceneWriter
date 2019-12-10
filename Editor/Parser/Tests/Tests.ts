@@ -114,14 +114,20 @@ test('Code - Quotes',
 );
 
 test('Code - Newline',
-    `"Welcome to [store.name]. My name is [pc.name]. Is there anything I can help you with today?"
-You promptly exit the store.`,
-    {
-        store: { type: 'object', children: { name: { type: 'string', value: 'TipTop' } } }, pc: { type: 'object', children: { name: { type: 'string', value: 'Thomas' } } }
-    },
-    `"Welcome to TipTop. My name is Thomas. Is there anything I can help you with today?"
-You promptly exit the store.`,
-    `"\\"Welcome to " + store.name + ". My name is " + pc.name + ". Is there anything I can help you with today?\\"\\nYou promptly exit the store."`
+    `This
+is
+a
+new
+
+line`,
+    {},
+    `This
+is
+a
+new
+
+line`,
+    `"This\\nis\\na\\nnew\\n\\nline"`
 );
 
 test('Code - Test',

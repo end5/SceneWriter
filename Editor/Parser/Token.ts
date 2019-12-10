@@ -5,7 +5,6 @@ export enum TokenType {
     BracketOpen = 'bracket open',
     BracketClose = 'bracket close',
     Pipe = 'pipe',
-    QuestionMark = 'question mark',
     Dot = 'dot',
     String = 'string',
     Space = 'whitespace',

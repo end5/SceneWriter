@@ -393,8 +393,6 @@ export class Parser {
     }
 
     private results() {
-        this.stream.whitespace();
-
         const arr = [];
 
         if (this.stream.match(TokenType.Pipe)) {

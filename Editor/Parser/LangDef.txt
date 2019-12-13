@@ -37,6 +37,6 @@ Access = { Whitespace } , Identity , { Dot , Identity }
 
 Arguments = { Whitespace , { Whitespace } , Value }
 
-Results = { Whitespace } , { Pipe , { Whitespace } , [ ResultConcat ] , { Whitespace } }
+Results = { Pipe , { Whitespace } , [ ResultConcat ] , { Whitespace } }
 
 ResultConcat = { Newline | Code | Text | ResultConcat }

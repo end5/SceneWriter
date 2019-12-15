@@ -114,9 +114,9 @@ export class AccessNode extends Node<NodeType.Access, [RetrieveNode | AccessNode
     // }
 }
 
-export class RetrieveNode extends Node<NodeType.Retrieve, IdentityNode, undefined> {
-    public constructor(range: TextRange, children: IdentityNode) {
-        super(NodeType.Retrieve, range, children, undefined);
+export class RetrieveNode extends Node<NodeType.Retrieve, never[], string> {
+    public constructor(range: TextRange, value: string) {
+        super(NodeType.Retrieve, range, [], value);
     }
 
     // public toCode(): string {

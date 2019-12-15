@@ -161,8 +161,8 @@ export class Parser {
     private access() {
         this.stream.whitespace();
 
-        let identityNode = this.getIdentity();
-        if (!identityNode)
+        let token = this.stream.consume(TokenType.Identity);
+        if (!token)
             return new ErrorNode(
                 new TextRange(this.stream.current.range.start, this.stream.current.range.end),
                 'Identity'
@@ -172,23 +172,29 @@ export class Parser {
         let rootNode;
 
         rootNode = new RetrieveNode(
-            new TextRange(identityNode.range.start, identityNode.range.end),
-            identityNode
+            new TextRange(token.range.start, token.range.end),
+            this.getText(token)
         );
 
         while (this.stream.match(TokenType.Dot)) {
             this.stream.consume(TokenType.Dot);
 
-            identityNode = this.getIdentity();
-            if (!identityNode)
+            token = this.stream.consume(TokenType.Identity);
+            if (!token)
                 return new ErrorNode(
                     new TextRange(this.stream.current.range.start, this.stream.current.range.end),
                     'Identity'
                 );
 
             rootNode = new AccessNode(
-                new TextRange(rootNode.range.start, identityNode.range.end),
-                [rootNode, identityNode]
+                new TextRange(rootNode.range.start, token.range.end),
+                [
+                    rootNode,
+                    new IdentityNode(
+                        new TextRange(token.range.start, token.range.end),
+                        this.getText(token)
+                    )
+                ]
             );
         }
 
@@ -264,16 +270,6 @@ export class Parser {
                 new TextRange(arr[0].range.start, arr[arr.length - 1].range.end),
                 arr
             );
-    }
-
-    private getIdentity() {
-        if (this.stream.match(TokenType.Identity)) {
-            const token = this.stream.consume(TokenType.Identity)!;
-            return new IdentityNode(
-                new TextRange(token.range.start, token.range.end),
-                this.getText(token)
-            );
-        }
     }
 
     private getValue() {

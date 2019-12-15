@@ -29,7 +29,7 @@ export class Interpreter {
             name = cur.children[1].value + (name.length === 0 ? '' : '.' + name);
             cur = cur.children[0];
         }
-        name = cur.children.value + (name.length === 0 ? '' : '.' + name);
+        name = cur.value + (name.length === 0 ? '' : '.' + name);
 
         return name;
     }
@@ -61,6 +61,7 @@ export class Interpreter {
                     case NodeType.String:
                     case NodeType.Number:
                     case NodeType.Error:
+                    case NodeType.Retrieve:
                         break;
 
                     // These have children, so process the children first
@@ -89,10 +90,6 @@ export class Interpreter {
                         stack.push({ data: node.data.children[0], discovered: false });
                         stack.push({ data: node.data.children[1], discovered: false });
                         stack.push({ data: node.data.children[2], discovered: false });
-                        continue;
-
-                    case NodeType.Retrieve:
-                        stack.push({ data: node.data.children, discovered: false });
                         continue;
 
                     case NodeType.Access:
@@ -197,18 +194,15 @@ export class Interpreter {
                 }
 
                 case NodeType.Retrieve: {
-                    const identity = valueStack.pop();
-                    if (identity === undefined) break;
-
-                    if (!(identity in this.globals)) {
+                    if (!(node.data.value in this.globals)) {
                         this.errors.push({
-                            msg: `${identity} does not exist`,
+                            msg: `${node.data.value} does not exist`,
                             range: node.data.range
                         });
                         break;
                     }
 
-                    valueStack.push(this.globals[identity]);
+                    valueStack.push(this.globals[node.data.value]);
                     posStack.push([node.data.range]);
                     break;
                 }

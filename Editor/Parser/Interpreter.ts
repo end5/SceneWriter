@@ -40,16 +40,17 @@ export class Interpreter {
         const jumpStack: number[] = [];
         const valueStack: any[] = [];
         const posStack: TextRange[][] = [];
-        // const stackCopy: { state: DiscoveryNode<AllNodes>[], jump: number[], value: any[] }[] = [];
+        const stackCopy: { state: DiscoveryNode<AllNodes>[], jump: number[], value: any[], pos: TextRange[][] }[] = [];
 
         let emptyList = false;
 
         while (stack.length > 0) {
-            // stackCopy.push({
-            //     state: JSON.parse(JSON.stringify(stack)),
-            //     jump: JSON.parse(JSON.stringify(jumpStack)),
-            //     value: JSON.parse(JSON.stringify(valueStack)),
-            // });
+            stackCopy.push({
+                state: JSON.parse(JSON.stringify(stack)),
+                jump: JSON.parse(JSON.stringify(jumpStack)),
+                value: JSON.parse(JSON.stringify(valueStack)),
+                pos: JSON.parse(JSON.stringify(posStack))
+            });
 
             node = stack[stack.length - 1];
 
@@ -80,21 +81,25 @@ export class Interpreter {
                             break;
                         }
 
-                        for (const child of node.data.children)
-                            stack.push({ data: child, discovered: false });
+                        // Reverse order
+                        for (let idx = node.data.children.length - 1; idx >= 0; idx--)
+                            stack.push({ data: node.data.children[idx], discovered: false });
+
                         //
                         jumpStack.push(valueStack.length);
                         continue;
 
                     case NodeType.Eval:
-                        stack.push({ data: node.data.children[0], discovered: false });
-                        stack.push({ data: node.data.children[1], discovered: false });
+                        // Reverse order
                         stack.push({ data: node.data.children[2], discovered: false });
+                        stack.push({ data: node.data.children[1], discovered: false });
+                        stack.push({ data: node.data.children[0], discovered: false });
                         continue;
 
                     case NodeType.Access:
-                        stack.push({ data: node.data.children[0], discovered: false });
+                        // Reverse order
                         stack.push({ data: node.data.children[1], discovered: false });
+                        stack.push({ data: node.data.children[0], discovered: false });
                         continue;
                 }
             }
@@ -129,14 +134,14 @@ export class Interpreter {
                     if (jumpStack.length === 0) break;
                     const jumpPos = jumpStack.pop()!;
 
-                    const arr = valueStack.splice(jumpPos).reverse();
+                    const arr = valueStack.splice(jumpPos);
 
                     if (node.data.type === NodeType.Concat)
                         valueStack.push(arr.join(''));
                     else
                         valueStack.push(arr);
 
-                    const posArr = posStack.splice(jumpPos).reverse();
+                    const posArr = posStack.splice(jumpPos);
                     const nodes = [];
                     for (const child of posArr)
                         for (const textRange of child)
@@ -147,13 +152,14 @@ export class Interpreter {
                 }
 
                 case NodeType.Eval: {
-                    const identity = valueStack.pop();
-                    const args = valueStack.pop();
+                    // Reverse order
                     const results = valueStack.pop();
+                    const args = valueStack.pop();
+                    const identity = valueStack.pop();
 
-                    const identityPos = posStack.pop();
-                    const argsPos = posStack.pop();
                     const resultsPos = posStack.pop();
+                    const argsPos = posStack.pop();
+                    const identityPos = posStack.pop();
 
                     if (identity === undefined || args === undefined || results === undefined) break;
                     if (identityPos === undefined || argsPos === undefined || resultsPos === undefined) break;
@@ -208,8 +214,9 @@ export class Interpreter {
                 }
 
                 case NodeType.Access: {
-                    const left = valueStack.pop();
+                    // Reverse order
                     const right = valueStack.pop();
+                    const left = valueStack.pop();
                     if (left === undefined || right === undefined) break;
 
                     if (typeof left !== 'object') {
@@ -241,148 +248,287 @@ export class Interpreter {
             result: valueStack[0],
             positions: posStack[0],
             errors: this.errors,
-            // stack: stackCopy
+            stack: stackCopy
         };
     }
 }
 
 /*
 
+"abc"
 concat
 |- string:a
 |- string:b
 |- string:c
 
-jump    value       loop        stack
- v       v                       v
-[]      []            start     [c]
-[0]     []            concat  > [s:c, s:b, s:a, c]
-[0]     [c]         < string:c  [s:b, s:a, c]
-[0]     [b, c]      < string:b  [s:a, c]
-[0]     [a, b, c]   < string:a  [c]
-[]      [abc]       < concat    []
+| # | state         | stack         | value     | jump  | range    |
+|___|_______________|_______________|___________|_______|__________|
+| 0 | start         | concat      + |           |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 1 | concat        | concat        |           | 0   + |          |
+|   |               | string:c    + |           |       |          |
+|   |               | string:b    + |           |       |          |
+|   |               | string:a    + |           |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 2 | string:a      | concat        | a       + | 0     | 0 1    + |
+|   |               | string:c      |           |       |          |
+|   |               | concat:b      |           |       |          |
+|   |               | string:a    - |           |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 3 | string:b      | concat        | a         | 0     | 0 1      |
+|   |               | string:c      | b       + |       | 1 2    + |
+|   |               | string:b    - |           |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 4 | string:c      | concat        | a         | 0     | 0 1      |
+|   |               | string:c    - | b         |       | 1 2      |
+|   |               |               | c       + |       | 2 3    + |
+|   |               |               |           |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 5 | concat        | concat      - | a       - | 0     | 0 1      |
+|   |               |               | b       - |       | 1 2      |
+|   |               |               | c       - |       | 2 3      |
+|   |               |               | abc     + |       |          |
+|___|_______________|_______________|___________|_______|__________|
 
+"abcd"
 concat
 |- string:a
-|- concat
-    |- string:b
-    |- string:c
-
-[]      []            start         [c]
-[0]     []            concat      > [c, s:a, c]
-[0,0]   []            concat      > [s:c, s:b, c, s:a, c]
-[0,0]   [c]         < string:c      [s:b, c, s:a, c]
-[0,0]   [b, c]      < string:b      [c, s:a, c]
-[0]     [bc]        < concat        [s:a, c]
-[0]     [a, bc]     < string:a      [c]
-[]      [abc]       < concat        []
-
-concat
 |- concat
 |   |- string:b
 |   |- string:c
-|- string:a
+|- string:d
 
-[]      []            start         [c]
-[0]     []            concat      > [s:a, c, c]
-[0]     [a]         < string:a      [c, c]
-[1,0]   [a]           concat      > [s:c, s:b, c, c]
-[1,0]   [c, a]      < string:c      [s:b, c, c]
-[1,0]   [b, c, a]   < string:b      [c, c]
-[0]     [bc, a]     < concat        [c]
-[]      [bca]       < concat        []
+| # | state         | stack         | value     | jump  | range    |
+|___|_______________|_______________|___________|_______|__________|
+| 0 | start         | concat      + |           |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 1 | concat        | concat        |           | 0   + |          |
+|   |               | string:d    + |           |       |          |
+|   |               | concat      + |           |       |          |
+|   |               | string:a    + |           |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 2 | string:a      | concat        | a       + | 0     | 0 1    + |
+|   |               | string:d      |           |       |          |
+|   |               | concat        |           |       |          |
+|   |               | string:a    - |           |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 3 | concat        | concat        | a         | 0     | 0 1      |
+|   |               | string:d      |           | 1   + |          |
+|   |               | concat        |           |       |          |
+|   |               | string:c    + |           |       |          |
+|   |               | string:b    + |           |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 4 | string:b      | concat        | a         | 0     | 0 1      |
+|   |               | string:d      | b       + | 1     | 1 2    + |
+|   |               | concat        |           |       |          |
+|   |               | string:c      |           |       |          |
+|   |               | string:b    - |           |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 5 | string:c      | concat        | a         | 0     | 0 1      |
+|   |               | string:d      | b         | 1     | 1 2      |
+|   |               | concat        | c       + |       | 2 3    + |
+|   |               | string:c    - |           |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 6 | concat        | concat        | a         | 0     | 0 1      |
+|   |               | string:d      | b       - | 1   - | 1 2      |
+|   |               | concat        | c       - |       | 2 3      |
+|   |               |               | bc      + |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 7 | string:d      | concat        | a         | 0     | 0 1      |
+|   |               | string:d    - | bc        |       | 1 2      |
+|   |               |               | d       + |       | 2 3      |
+|   |               |               |           |       | 3 4    + |
+|___|_______________|_______________|___________|_______|__________|
+| 8 | concat        | concat      - | a       - | 0   - | 0 1      |
+|   |               |               | bc      - |       | 1 2      |
+|   |               |               | d       - |       | 2 3      |
+|   |               |               | abcd    + |       | 3 4      |
+|___|_______________|_______________|___________|_______|__________|
 
+"[x]"
 eval
-|- retrieve
-|   |- identity:x
+|- retrieve:x
 |- args
 |- results
 
-[]          []                start             [e]
-[0]         []                eval            > [rs, a, r, e]
-[0]         [[]]            < results           [a, r, e]
-[0]         [[], []]        < args              [r, e]
-[0]         [[], []]          retrieve        > [i:x, r, e]
-[0]         [x, [], []]     < identity:x        [r, e]
-[0]         [.x, [], []]    < retrieve          [e]
-[0]         [x]             < eval              []
+| # | state         | stack         | value     | jump  | range    |
+|___|_______________|_______________|___________|_______|__________|
+| 0 | start         | eval        + |           |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 1 | eval          | eval          |           | 0   + | 1 2    + |
+|   |               | results     + |           |       |          |
+|   |               | args        + |           |       |          |
+|   |               | retrieve:x  + |           |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 2 | retrieve:x    | eval          | .x      + | 0     | 1 2      |
+|   |               | results       |           |       |          |
+|   |               | args          |           |       |          |
+|   |               | retrieve:x  - |           |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 3 | args          | eval          | .x        | 0     | 1 2      |
+|   |               | results       | []      + |       |          |
+|   |               | args        - |           |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 4 | results       | eval          | .x        | 0     | 1 2      |
+|   |               | results     - | []        |       |          |
+|   |               |               | []      + |       |          |
+|   |               |               |           |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 5 | eval          | eval        - | .x      - | 0   - | 1 2      |
+|   |               |               | []      - |       |          |
+|   |               |               | []      - |       |          |
+|   |               |               | x       + |       |          |
+|___|_______________|_______________|___________|_______|__________|
 
-concat
-|- string:a
-|- eval
-    |- retrieve
-    |   |- identity:x
-    |- args
-    |- results
-        |- string:y
-        |- string:z
+"[b|T|F]"
+eval
+|- retrieve:b
+|- args
+|- results
+    |- string:T
+    |- string:F
 
-[0]         []                    start             [c]
-[0]         []                    concat          > [e, s:a, c]
-[0,0]       []                    eval            > [rs, a, r, e, s:a, c]
-[0,0]       []                    results         > [s:z, s:y, rs, a, r, e, s:a, c]
-[0,0,0]     [z]                 < string:z          [s:y, rs, a, r, e, s:a, c]
-[0,0,0]     [y, z]              < string:y          [rs, a, r, e, s:a, c]
-[0,0]       [[z, y]]            < results           [a, r, e, s:a, c]
-[0,0]       [[], [z, y]]        < args              [r, e, s:a, c]
-[0,0]       [[], [z, y]]          retrieve        > [i:x, r, e, s:a, c]
-[0,0]       [x, [], [z, y]]     < identity:x        [r, e, s:a, c]
-[0,0]       [.x, [], [z, y]]    < retrieve          [e, s:a, c]
-[0]         [xyz]               < eval              [s:a, c]
-[0]         [a]                 < string:a          [c]
-[]          [axyz]              < concat            []
+| # | state         | stack         | value     | jump  | range    |
+|___|_______________|_______________|___________|_______|__________|
+| 0 | start         | eval        + |           |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 1 | eval          | eval          |           | 0   + | 1 6    + |
+|   |               | results     + |           |       |          |
+|   |               | args        + |           |       |          |
+|   |               | retrieve:b  + |           |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 2 | retrieve:b    | eval          | .b        | 0     | 1 6      |
+|   |               | results       |           |       |          |
+|   |               | args          |           |       |          |
+|   |               | retrieve:b  - |           |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 3 | args          | eval          | .b        | 0     | 1 6      |
+|   |               | results       |           |       |          |
+|   |               | args        - |           |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 4 | results       | eval          | .b        | 0     | 1 6      |
+|   |               | results       |           | 1   + |          |
+|   |               | string:F    + |           |       |          |
+|   |               | string:T    + |           |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 5 | string:T      | eval          | .a        | 0     | 1 6      |
+|   |               | results       | T       + | 1     | 3 4    + |
+|   |               | string:F      |           |       |          |
+|   |               | string:T    - |           |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 6 | string:F      | eval          | .a        | 0     | 1 6      |
+|   |               | results       | T         | 1     | 3 4      |
+|   |               | string:F    - | F       + |       | 5 6    + |
+|___|_______________|_______________|___________|_______|__________|
+| 7 | results       | eval          | .a        | 0     | 1 6      |
+|   |               | results     - | T       - | 1   - | 3 4      |
+|   |               |               | F       - |       | 5 6      |
+|   |               |               | [T, F]  + |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 8 | eval          | eval        - | .a      - | 0   - | 1 6    - |
+|   |               |               | [T, F]  - |       | 3 4      |
+|   |               |               | T       + |       | 5 6    - |
+|___|_______________|_______________|___________|_______|__________|
 
-concat
-|- eval
-|   |- retrieve
-|   |   |- identity:x
-|   |- args
-|   |   |- number:1
-|   |- results
-|       |- string:y
-|       |- string:z
-|- string:a
+"[x 1]"
+eval
+|- retrieve:x
+|- args
+|   |- number:1
+|- results
 
-[0]         []                        start             [c]
-[0]         []                        concat          > [s:a, e, c]
-[0]         [a]                     < string:a          [e, c]
-[1,0]       [a]                       eval            > [rs, a, r, e, c]
-[1,1,0]     [a]                       results         > [s:z, s:y, rs, a, r, e, c]
-[1,1,0]     [z, a]                  < string:z          [s:y, rs, a, r, e, c]
-[1,1,0]     [y, z, a]               < string:y          [rs, a, r, e, c]
-[1,0]       [[z, y], a]             < results           [a, r, e, c]
-[2,1,0]     [[z, y], a]               args            > [n:1, a, r, e, c]
-[2,1,0]     [1, [z, y], a]          < number:1          [a, r, e, c]
-[1,0]       [[1], [z, y], a]        < args              [r, e, c]
-[1,0]       [[1], [z, y], a]          retrieve        > [i:x, r, e, c]
-[1,0]       [x, [1], [z, y], a]     < identity:x        [r, e, c]
-[1,0]       [.x, [1], [z, y], a]    < retrieve          [e, c]
-[0]         [x1yz, a]               < eval              [c]
-[]          [ax1yz]                 < concat            []
+| # | state         | stack         | value     | jump  | range    |
+|___|_______________|_______________|___________|_______|__________|
+| 0 | start         | eval        + |           |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 1 | eval          | eval          |           | 0   + | 1 4    + |
+|   |               | results     + |           |       |          |
+|   |               | args        + |           |       |          |
+|   |               | retrieve:x  + |           |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 2 | retrieve:x    | eval          | .x        | 0     | 1 4      |
+|   |               | results       |           |       |          |
+|   |               | args          |           |       |          |
+|   |               | retrieve:x  - |           |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 3 | args          | eval          | .a        | 0     | 1 4      |
+|   |               | results       |           | 1   + |          |
+|   |               | args          |           |       |          |
+|   |               | number:1    + |           |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 4 | number:1      | eval          | .a        | 0     | 1 4      |
+|   |               | results       | 1       + | 1     |          |
+|   |               | args          |           |       |          |
+|   |               | number:1    - |           |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 5 | args          | eval          | .a        | 0     | 1 4      |
+|   |               | results       | 1       - | 1   - |          |
+|   |               | args        - | [1]     + |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 6 | results       | eval          | .a        | 0     | 1 4      |
+|   |               | results     - | [1]       |       |          |
+|   |               |               | []      + |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 7 | eval          | eval        - | .a      - | 0   - | 1 4      |
+|   |               |               | [1]     - |       |          |
+|   |               |               | []      - |       |          |
+|   |               |               | 1       + |       |          |
+|___|_______________|_______________|___________|_______|__________|
 
+"[a.b]"
 eval
 |- access
-|   |- retrieve
-|   |   |- identity:a
+|   |- retrieve:a
 |   |- identity:b
 |- args
 |- results
-    |- string:y
-    |- string:z
 
-[0]         []                    start             [e]
-[0]         []                    eval            > [rs, a, ac, e]
-[0,0]       [z]                   results         > [s:z, s:y, rs, a, ac, e]
-[0,0]       [z]                 < string:z          [s:y, rs, a, ac, e]
-[0,0]       [y, z]              < string:y          [rs, a, ac, e]
-[0]         [[z, y]]            < results           [a, ac, e]
-[0]         [[], [z, y]]        < args              [ac, e]
-[0]         [[], [z, y]]          access          > [i:b, r, ac, e]
-[0]         [b, [], [z, y]]     < identity:b        [r, ac, e]
-[0]         [b, [], [z, y]]       retrieve        > [i:a, r, ac, e]
-[0]         [a, b, [], [z, y]]  < identity:a        [r, ac, e]
-[0]         [.a, b, [], [z, y]] < retrieve          [ac, e]
-[0]         [.a.b, [], [z, y]]  < access            [e]
-[]          [yz]                < eval              []
+| # | state         | stack         | value     | jump  | range    |
+|___|_______________|_______________|___________|_______|__________|
+| 0 | start         | eval        + |           |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 1 | eval          | eval          |           | 0   + | 1 4    + |
+|   |               | results     + |           |       |          |
+|   |               | args        + |           |       |          |
+|   |               | access      + |           |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 2 | access        | eval          |           | 0     | 1 4      |
+|   |               | results       |           |       |          |
+|   |               | args          |           |       |          |
+|   |               | access        |           |       |          |
+|   |               | identity:a  + |           |       |          |
+|   |               | retrieve:b  + |           |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 3 | retrieve:a    | eval          | .a      + | 0     | 1 4      |
+|   |               | results       |           |       |          |
+|   |               | args          |           |       |          |
+|   |               | access        |           |       |          |
+|   |               | identity:b    |           |       |          |
+|   |               | retrieve:a  - |           |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 4 | identity:b    | eval          | .a        | 0     | 1 4      |
+|   |               | results       | b       + |       |          |
+|   |               | args          |           |       |          |
+|   |               | access        |           |       |          |
+|   |               | identity:b  - |           |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 5 | access        | eval          | .a      - | 0     | 1 4      |
+|   |               | results       | b       - |       |          |
+|   |               | args          | .a.b    + |       |          |
+|   |               | access      - |           |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 6 | args          | eval          | .a.b      | 0     | 1 4      |
+|   |               | results       | []      + |       |          |
+|   |               | args        - |           |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 7 | results       | eval          | .a.b      |       | 1 4      |
+|   |               | results     - | []        |       |          |
+|   |               |               | []      + |       |          |
+|___|_______________|_______________|___________|_______|__________|
+| 8 | eval          | eval        - | .a.b    - |       | 1 4      |
+|   |               |               | []      - |       |          |
+|   |               |               | []      - |       |          |
+|   |               |               | b       + |       |          |
+|___|_______________|_______________|___________|_______|__________|
 
 */

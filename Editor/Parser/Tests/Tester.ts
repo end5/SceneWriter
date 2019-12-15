@@ -26,7 +26,7 @@ export function test(name: string, text: string, obj: Record<string, any>, resul
             console.log('-- ' + name + ' ... Failed: Result did not match');
         else
             console.log('-- ' + name + ' ... Failed: Code did not match');
-        console.log(JSON.stringify(interpretResult.stack));
+        // console.log(JSON.stringify(interpretResult.stack));
         console.log('| -- Lexer');
         for (const state of lexResult)
             console.log('| ' +

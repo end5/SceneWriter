@@ -1,8 +1,8 @@
-import { AllNodes, NodeType, StringNode } from "./Node";
+import { AccessNode, AllNodes, NodeType, RetrieveNode } from "./Node";
 import { Symbols } from "./Symbol";
 import { TextRange } from './TextRange';
 
-export interface ParserError {
+export interface InterpretError {
     range: TextRange;
     msg: string;
 }
@@ -13,7 +13,7 @@ interface DiscoveryNode<T> {
 }
 
 export class Interpreter {
-    private errors: ParserError[] = [];
+    private errors: InterpretError[] = [];
     private globals: Record<string, Symbols>;
     private root: AllNodes;
 
@@ -22,29 +22,34 @@ export class Interpreter {
         this.root = root;
     }
 
-    public interpret() {
-        const result = this.loop();
-        const errors = this.errors;
+    private getName(node: AccessNode | RetrieveNode) {
+        let name = '';
+        let cur: AccessNode | RetrieveNode = node;
+        while (cur.type === NodeType.Access) {
+            name = cur.children[1].value + (name.length === 0 ? '' : '.' + name);
+            cur = cur.children[0];
+        }
+        name = cur.children.value + (name.length === 0 ? '' : '.' + name);
 
-        return result;
+        return name;
     }
 
-    private loop() {
+    public interpret() {
         const stack: DiscoveryNode<AllNodes>[] = [{ data: this.root, discovered: false }];
         let node: DiscoveryNode<AllNodes>;
         const jumpStack: number[] = [];
         const valueStack: any[] = [];
         const posStack: TextRange[][] = [];
-        const stackCopy: { state: DiscoveryNode<AllNodes>[], jump: number[], value: any[] }[] = [];
+        // const stackCopy: { state: DiscoveryNode<AllNodes>[], jump: number[], value: any[] }[] = [];
 
         let emptyList = false;
 
         while (stack.length > 0) {
-            stackCopy.push({
-                state: JSON.parse(JSON.stringify(stack)),
-                jump: JSON.parse(JSON.stringify(jumpStack)),
-                value: JSON.parse(JSON.stringify(valueStack)),
-            });
+            // stackCopy.push({
+            //     state: JSON.parse(JSON.stringify(stack)),
+            //     jump: JSON.parse(JSON.stringify(jumpStack)),
+            //     value: JSON.parse(JSON.stringify(valueStack)),
+            // });
 
             node = stack[stack.length - 1];
 
@@ -114,7 +119,12 @@ export class Interpreter {
                 case NodeType.Results: {
                     if (emptyList) {
                         emptyList = false;
-                        valueStack.push([]);
+
+                        if (node.data.type === NodeType.Concat)
+                            valueStack.push('');
+                        else
+                            valueStack.push([]);
+
                         posStack.push([node.data.range]);
                         break;
                     }
@@ -149,6 +159,7 @@ export class Interpreter {
                     const resultsPos = posStack.pop();
 
                     if (identity === undefined || args === undefined || results === undefined) break;
+                    if (identityPos === undefined || argsPos === undefined || resultsPos === undefined) break;
 
                     if (typeof identity === 'function') {
                         const result = identity(args, results);
@@ -187,20 +198,44 @@ export class Interpreter {
 
                 case NodeType.Retrieve: {
                     const identity = valueStack.pop();
-                    if (identity !== undefined) {
-                        valueStack.push(this.globals[identity]);
-                        posStack.push([node.data.range]);
+                    if (identity === undefined) break;
+
+                    if (!(identity in this.globals)) {
+                        this.errors.push({
+                            msg: `${identity} does not exist`,
+                            range: node.data.range
+                        });
+                        break;
                     }
+
+                    valueStack.push(this.globals[identity]);
+                    posStack.push([node.data.range]);
                     break;
                 }
 
                 case NodeType.Access: {
                     const left = valueStack.pop();
                     const right = valueStack.pop();
-                    if (left !== undefined && right !== undefined && typeof left === 'object') {
-                        valueStack.push(left[right]);
-                        posStack.push([node.data.range]);
+                    if (left === undefined || right === undefined) break;
+
+                    if (typeof left !== 'object') {
+                        this.errors.push({
+                            msg: `${this.getName(node.data)} is a value`,
+                            range: node.data.range
+                        });
+                        break;
                     }
+
+                    if (!(right in left)) {
+                        this.errors.push({
+                            msg: `${right} does not exist in ${this.getName(node.data)}`,
+                            range: node.data.range
+                        });
+                        break;
+                    }
+
+                    valueStack.push(left[right]);
+                    posStack.push([node.data.range]);
                     break;
                 }
             }
@@ -208,7 +243,12 @@ export class Interpreter {
             stack.pop();
         }
 
-        return { result: valueStack[0], stack: stackCopy };
+        return {
+            result: valueStack[0],
+            positions: posStack[0],
+            errors: this.errors,
+            // stack: stackCopy
+        };
     }
 }
 

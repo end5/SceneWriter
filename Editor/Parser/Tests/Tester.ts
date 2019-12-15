@@ -1,25 +1,32 @@
 import chalk = require("chalk");
-import { lex, LexerState } from "../Lexer";
-import { Parser, ParserResult } from "../Parser";
-import { Symbols } from "../Symbol";
+import { Interpreter } from "../Interpreter";
+import { lex } from "../Lexer";
+import { Parser } from "../Parser";
 import { TextRange } from "../TextRange";
 
-export function test(name: string, text: string, obj: Record<string, Symbols>, result: string, codeResult: string) {
+export function test(name: string, text: string, obj: Record<string, any>, result: string | string[], codeResult: string) {
 
     const lexResult = lex(text, true);
 
-    const parser = new Parser(lexResult.map((state) => state.token), text, obj);
+    const parser = new Parser(lexResult.map((state) => state.token), text);
     const parserResult = parser.parse();
-    const parserText = parserResult.root.result.map((n) => n.result).join('');
-    const codeText = parserResult.root.toCode();
+    const interpreter = new Interpreter(parserResult.root, obj);
+    const interpretResult = interpreter.interpret();
+    const parserText = interpretResult.result;
+    // console.log(JSON.stringify(interpretResult.stack));
+    // const codeText = parserResult.root.toCode();
 
-    if (parserText === result && codeText === codeResult)
+    const resultMatch = typeof result === 'string' ? parserText === result : result.includes(parserText);
+
+    // if (resultMatch && codeText === codeResult)
+    if (resultMatch)
         console.log('-- ' + name + ' ... Success');
     else {
-        if (parserText !== result)
+        if (!resultMatch)
             console.log('-- ' + name + ' ... Failed: Result did not match');
         else
             console.log('-- ' + name + ' ... Failed: Code did not match');
+        console.log(JSON.stringify(interpretResult.stack));
         console.log('| -- Lexer');
         for (const state of lexResult)
             console.log('| ' +
@@ -30,10 +37,10 @@ export function test(name: string, text: string, obj: Record<string, Symbols>, r
                 state.text
             );
 
-        console.log('| -- Parser');
+        console.log('| -- Result');
         console.log('| ' + parserText);
-        console.log('| -- Code');
-        console.log('| ' + codeText);
+        // console.log('| -- Code');
+        // console.log('| ' + codeText);
 
         console.log('| -- Errors');
         for (const error of parserResult.errors)

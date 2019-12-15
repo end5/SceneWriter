@@ -1,5 +1,4 @@
-import { AccessNode, ConcatNode, ConditionalNode, ErrorNode, EvalNode, FuncChild, FuncNodes, IdentityNode, isErrorNode, NodeType, NumberNode, RetrieveNode, ReturnNode, StringNode } from "./Node";
-import { Symbols } from "./Symbol";
+import { AccessNode, ArgsNode, ConcatNode, ErrorNode, EvalNode, IdentityNode, isErrorNode, NumberNode, ResultsNode, RetrieveNode, StringNode, TextNodes } from "./Node";
 import { TextRange } from './TextRange';
 import { Token, TokenType } from "./Token";
 import { TokenStream } from './TokenStream';
@@ -10,7 +9,7 @@ export interface ParserError {
 }
 
 export interface ParserResult {
-    root: ConcatNode;
+    root: TextNodes;
     errors: ParserError[];
 }
 
@@ -18,12 +17,10 @@ export class Parser {
     private stream: TokenStream;
     private errors: ParserError[] = [];
     private textStr: string;
-    private globals: Record<string, Symbols>;
 
-    public constructor(tokens: Token[], text: string, globals: Record<string, Symbols>) {
+    public constructor(tokens: Token[], text: string) {
         this.stream = new TokenStream(tokens);
         this.textStr = text;
-        this.globals = globals;
     }
 
     public parse(): ParserResult {
@@ -43,34 +40,15 @@ export class Parser {
      * @param range
      */
     private empty(range = new TextRange()) {
-        const result = new StringNode(range, '');
-        return new ConcatNode(
-            range,
-            [result],
-            [result]
-        );
+        return new StringNode(range, '');
     }
 
     private createError(node: ErrorNode): ParserError {
-        return { range: node.range, msg: `Expected "${node.result}"` };
+        return { range: node.range, msg: `Expected "${node.value}"` };
     }
 
     private getText(token: Token) {
         return this.textStr.slice(token.range.start.col + token.offset, token.range.end.col + token.offset);
-    }
-
-    /**
-     * Fold results into StringNode[]
-     * @param arr
-     */
-    private foldResults(arr: FuncChild[]) {
-        const result = [];
-        for (const child of arr)
-            if (child.type === NodeType.String)
-                result.push(child);
-            else
-                result.push(...child.result);
-        return result;
     }
 
     private concat() {
@@ -98,26 +76,18 @@ export class Parser {
         }
 
         // Nothing so force empty
-        if (arr.length === 0) {
+        if (arr.length === 0)
             return this.empty(new TextRange(this.stream.current.range.start, this.stream.current.range.end));
-        }
-
-        /////////////////
-        // Compute result
-        /////////////////
-
-        return new ConcatNode(
-            new TextRange(arr[0].range.start, arr[arr.length - 1].range.end),
-            this.foldResults(arr),
-            arr
-        );
+        else if (arr.length === 1)
+            return arr[0];
+        else
+            return new ConcatNode(
+                new TextRange(arr[0].range.start, arr[arr.length - 1].range.end),
+                arr
+            );
     }
 
     private text() {
-        /////////////////
-        // Compute result
-        /////////////////
-
         const startToken = this.stream.current;
         let endToken;
         let token;
@@ -145,7 +115,7 @@ export class Parser {
         return;
     }
 
-    private code() {
+    private code(): TextNodes | ErrorNode | undefined {
         // Leave if no bracket
         const bracketOpenToken = this.stream.consume(TokenType.BracketOpen);
         if (!bracketOpenToken) return;
@@ -165,7 +135,7 @@ export class Parser {
         return codeNode;
     }
 
-    private eval(): ErrorNode | FuncNodes {
+    private eval() {
 
         const identityNode = this.access();
         if (isErrorNode(identityNode)) return identityNode;
@@ -174,117 +144,18 @@ export class Parser {
         const resultNodes = this.results();
 
         let rangeEnd;
-        if (resultNodes.length > 0)
-            rangeEnd = resultNodes[resultNodes.length - 1].range.end;
-        else if (argNodes.length > 0)
-            rangeEnd = argNodes[argNodes.length - 1].range.end;
+        if (resultNodes.children.length > 0)
+            rangeEnd = resultNodes.children[resultNodes.children.length - 1].range.end;
+        else if (argNodes.children.length > 0)
+            rangeEnd = argNodes.children[argNodes.children.length - 1].range.end;
         else
             rangeEnd = identityNode.range.end;
 
-        /////////////////
-        // Check result
-        /////////////////
-
-        if (identityNode.result.type === 'object')
-            return new ErrorNode(
-                new TextRange(identityNode.range.start, identityNode.range.end),
-                'symbol with object type'
-            );
-
-        /////////////////
-
-        if (identityNode.result.type === 'function') {
-            /////////////////
-            // Compute result
-            /////////////////
-
-            // Function result
-            const calcArgs = argNodes.map((child) => child.result);
-            const calcResults = resultNodes.reduce((arr, child) =>
-                arr.concat(child.result.map((childStr) => childStr.result)),
-                [] as string[]);
-            const result = identityNode.result.value(calcArgs, calcResults);
-
-            let resultNode;
-            // If result was number, use it to pick the result node
-            if (typeof result === 'number') {
-                if (resultNodes.length !== 0 && result >= 0 && result < resultNodes.length)
-                    resultNode = resultNodes[result].result;
-                else
-                    return new ErrorNode(
-                        identityNode.range,
-                        result + ' is out of range of results'
-                    );
-            }
-            else
-                resultNode = [new StringNode(
-                    new TextRange(identityNode.range.start, rangeEnd),
-                    result + ''
-                )];
-
-            /////////////////
-
-            return new EvalNode(
-                new TextRange(identityNode.range.start, rangeEnd),
-                resultNode,
-                [identityNode, argNodes, resultNodes]
-            );
-        }
-        else if (identityNode.result.type === 'boolean') {
-            /////////////////
-            // Check result
-            /////////////////
-
-            if (resultNodes.length === 0)
-                return new ErrorNode(
-                    new TextRange(identityNode.range.end, identityNode.range.end),
-                    'at least 1 result'
-                );
-
-            if (resultNodes.length > 2)
-                return new ErrorNode(
-                    new TextRange(resultNodes[1].range.end, resultNodes[resultNodes.length - 1].range.end),
-                    '2 results'
-                );
-
-            /////////////////
-            // Compute result
-            /////////////////
-
-            if (resultNodes.length === 1)
-                resultNodes.push(this.empty(new TextRange(resultNodes[0].range.end, resultNodes[0].range.end)));
-
-            const resultNode = resultNodes[identityNode.result.value ? 0 : 1];
-
-            /////////////////
-
-            return new ConditionalNode(
-                new TextRange(identityNode.range.start, resultNodes[resultNodes.length - 1].range.end),
-                resultNode.result,
-                [identityNode, resultNodes as [FuncChild, FuncChild]]
-            );
-        }
-        else if (identityNode.result.type === 'number' || identityNode.result.type === 'string') {
-            /////////////////
-            // Compute result
-            /////////////////
-
-            return new ReturnNode(
-                new TextRange(identityNode.range.start, rangeEnd),
-                [new StringNode(
-                    new TextRange(identityNode.range.start, rangeEnd),
-                    identityNode.result.value + '' // Dont return numbers
-                )],
-                [identityNode]
-            );
-
-            /////////////////
-        }
-
-        return new ErrorNode(
-            identityNode.range,
-            'function, number or string'
+        return new EvalNode(
+            new TextRange(identityNode.range.start, rangeEnd),
+            [identityNode, argNodes, resultNodes]
         );
+
     }
 
     private access() {
@@ -300,28 +171,10 @@ export class Parser {
         // Retrieve node to get value from global
         let rootNode;
 
-        /////////////////
-        // Check result
-        /////////////////
-
-        // Check value exists in globals
-        if (!(identityNode.result in this.globals))
-            return new ErrorNode(
-                new TextRange(identityNode.range.start, identityNode.range.end),
-                identityNode.result + ' does not exist in globals'
-            );
-
-        /////////////////
-        // Compute result
-        /////////////////
-
         rootNode = new RetrieveNode(
             new TextRange(identityNode.range.start, identityNode.range.end),
-            this.globals[identityNode.result],
             identityNode
         );
-
-        /////////////////
 
         while (this.stream.match(TokenType.Dot)) {
             this.stream.consume(TokenType.Dot);
@@ -333,42 +186,10 @@ export class Parser {
                     'Identity'
                 );
 
-            // Create tree shifting Retrieve node down for every Access
-            //             Access
-            //            /      \
-            //        Access   Identity
-            //       /      \
-            // Retrieve   Identity
-            //     |
-            // Identity
-
-            /////////////////
-            // Check result
-            /////////////////
-
-            // Check value for children
-            if (!('children' in rootNode.result))
-                return new ErrorNode(
-                    new TextRange(identityNode.range.start, identityNode.range.end),
-                    rootNode.result + ' has no children'
-                );
-            else if (!(identityNode.result in rootNode.result.children))
-                return new ErrorNode(
-                    new TextRange(identityNode.range.start, identityNode.range.end),
-                    identityNode.result + ' does not exist in ' + rootNode.children
-                );
-
-            /////////////////
-            // Compute result
-            /////////////////
-
             rootNode = new AccessNode(
                 new TextRange(rootNode.range.start, identityNode.range.end),
-                rootNode.result.children[identityNode.result],
                 [rootNode, identityNode]
             );
-
-            /////////////////
         }
 
         return rootNode;
@@ -389,7 +210,10 @@ export class Parser {
             } while (this.stream.whitespace());
         }
 
-        return arr;
+        return new ArgsNode(
+            new TextRange(),
+            arr
+        );
     }
 
     private results() {
@@ -399,8 +223,6 @@ export class Parser {
             // Consume Pipe then ResultConcat
             let node;
             while (this.stream.consume(TokenType.Pipe)) {
-                this.stream.whitespace();
-
                 node = this.resultConcat();
                 arr.push(node);
 
@@ -408,10 +230,13 @@ export class Parser {
             }
         }
 
-        return arr;
+        return new ResultsNode(
+            new TextRange(),
+            arr
+        );
     }
 
-    private resultConcat() {
+    private resultConcat(): TextNodes {
         const arr = [];
         let newNode;
 
@@ -430,26 +255,18 @@ export class Parser {
         }
 
         // Nothing so force empty
-        if (arr.length === 0) {
+        if (arr.length === 0)
             return this.empty(new TextRange(this.stream.current.range.start, this.stream.current.range.end));
-        }
-
-        /////////////////
-        // Compute result
-        /////////////////
-
-        return new ConcatNode(
-            new TextRange(arr[0].range.start, arr[arr.length - 1].range.end),
-            this.foldResults(arr),
-            arr
-        );
+        else if (arr.length === 1)
+            return arr[0];
+        else
+            return new ConcatNode(
+                new TextRange(arr[0].range.start, arr[arr.length - 1].range.end),
+                arr
+            );
     }
 
     private getIdentity() {
-        /////////////////
-        // Compute result
-        /////////////////
-
         if (this.stream.match(TokenType.Identity)) {
             const token = this.stream.consume(TokenType.Identity)!;
             return new IdentityNode(
@@ -460,10 +277,6 @@ export class Parser {
     }
 
     private getValue() {
-        /////////////////
-        // Compute result
-        /////////////////
-
         let subStr = "";
 
         const start = this.stream.current;

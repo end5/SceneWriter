@@ -4,15 +4,18 @@ import { lex } from "../Lexer";
 import { Parser } from "../Parser";
 import { TextRange } from "../TextRange";
 
-export function test(
-    name: string,
-    input: {
-        text: string, obj: Record<string, any>
-    },
-    output: {
-        result: string | string[], ranges: TextRange[], code: string
-    }
-) {
+export interface TestInput {
+    text: string;
+    obj: Record<string, any>;
+}
+
+export interface TestOutput {
+    result: string;
+    ranges: TextRange[];
+    code: string;
+}
+
+export function test(name: string, input: TestInput, output: TestOutput) {
 
     const lexResult = lex(input.text, true);
 
@@ -20,48 +23,54 @@ export function test(
     const parserResult = parser.parse();
     const interpreter = new Interpreter(parserResult.root, input.obj);
     const interpretResult = interpreter.interpret();
-    const parserText = interpretResult.result;
-    // console.log(JSON.stringify(interpretResult.stack));
-    // const codeText = parserResult.root.toCode();
 
-    const resultMatch = typeof output.result === 'string' ? parserText === output.result : output.result.includes(parserText);
-    const posMatch = interpretResult.positions.every((pos, idx) =>
-        pos.start.line === output.ranges[idx].start.line &&
-        pos.start.col === output.ranges[idx].start.col &&
-        pos.end.line === output.ranges[idx].end.line &&
-        pos.end.col === output.ranges[idx].end.col
-    );
+    const results = {
+        text: interpretResult.result === output.result,
+        pos: interpretResult.ranges.every((pos, idx) => compareTextRange(pos, output.ranges[idx])),
+        // code: interpretResult.code === output.code,
+        code: true,
+    };
 
-    // if (resultMatch && codeText === codeResult)
-    if (resultMatch)
+    if (results.text && results.pos && results.code) {
         console.log('-- ' + name + ' ... Success');
-    else {
-        if (!resultMatch)
-            console.log('-- ' + name + ' ... Failed: Result did not match');
-        else if (!posMatch)
-            console.log('-- ' + name + ' ... Failed: Positions did not match');
-        else
-            console.log('-- ' + name + ' ... Failed: Code did not match');
-        // console.log(JSON.stringify(interpretResult.stack));
-        console.log('| -- Lexer');
-        for (const state of lexResult)
-            console.log('| ' +
-                chalk.magenta(`[${state.lineNum}:${state.offset}]`) +
-                chalk.magenta(new TextRange(state.token.range.start, state.token.range.end) + '') + ' ' +
-                chalk.cyan(state.token.type) + ' ' +
-                chalk.yellow(`<${state.codeStack.reverse()}>`) + ' ' +
-                state.text
-            );
-
-        console.log('| -- Result');
-        console.log('| ' + parserText);
-        console.log('| -- Positions');
-        console.log('| ' + interpretResult.positions);
-        // console.log('| -- Code');
-        // console.log('| ' + codeText);
-
-        console.log('| -- Errors');
-        for (const error of parserResult.errors)
-            console.log('| ' + chalk.magenta(error.range + '') + ' ' + chalk.red(error.msg));
+        return;
     }
+
+    let log = '-- ' + name + ' ... Failed:';
+    if (!results.text) log += ' Result';
+    if (!results.pos) log += ' Positions';
+    if (!results.code) log += ' Code';
+    log += ' did not match';
+
+    log += '\n| -- Lexer';
+    for (const state of lexResult)
+        log += '\n| ' +
+            chalk.magenta(`[${state.lineNum}:${state.offset}]`) +
+            chalk.magenta(new TextRange(state.token.range.start, state.token.range.end) + '') + ' ' +
+            chalk.cyan(state.token.type) + ' ' +
+            chalk.yellow(`<${state.codeStack.reverse()}>`) + ' ' +
+            state.text;
+
+    log += '\n| -- Result';
+    log += '\n| ' + interpretResult.result;
+    log += '\n| -- Ranges';
+    log += '\n| ' + interpretResult.ranges;
+    log += '\n| -- Code';
+    log += '\n| ' + interpretResult.code;
+
+    log += '\n| -- Errors';
+    for (const error of parserResult.errors)
+        log += '\n| ' + chalk.magenta(error.range + '') + ' ' + chalk.red(error.msg);
+
+    log += '\n| -- Stack';
+    log += '\n| ' + JSON.stringify(interpretResult.stack);
+
+    console.log(log);
+}
+
+function compareTextRange(a: TextRange, b: TextRange) {
+    return a.start.line === b.start.line &&
+        a.start.col === b.start.col &&
+        a.end.line === b.end.line &&
+        a.end.col === b.end.col;
 }

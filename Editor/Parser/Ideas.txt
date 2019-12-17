@@ -1,0 +1,57 @@
+- internalizing
+[rand|asdf|qwer]
+rand('asdf', 'qwer')
+
+[rand|
+    asdf|
+    qwer
+]
+rand('\nasdf', '\nqwer')
+
+- selecting
+[sel 0 1|asdf|qwer|zxcv]
+if (sel === 0)
+    o('asdf')
+else if (sel === 1)
+    o('qwer')
+else
+    o('zxcv')
+
+- alias
+[alias value < 0 2 4|name]
+[.name |?-0 |1-2 |3-4 ]
+
+- text: get
+[value]
+- text: compare
+[value is t |value is t |value is not t ]
+[value is t1 t2 t3 |text 1 |text 2 |text 3 |no match ]
+
+- number: get
+[value]
+- number: compare
+[value is 0 |0 |not 0 ]
+[value is 0 2 4 |0 |2 |4 |not 0 2 4 ]
+- number: range
+[value lt 0 2 4 |?-0 |0-2 |3-4 ]
+[value gt 0 2 4 |0-1 |2-3 |4-? ]
+
+- boolean
+[value |true |false ]
+
+- function
+[func|||]
+
+- list of text
+[list is t1 t2 t3 |text 1 |text 2 |text 3 |no match]
+[list has t1 t2 t3 |yes |no ]
+
+- list of numbers
+[list is n1 n2 n3 |num 1 |num 2 |num 3 |no match]
+[list has n1 n2 n3 |yes |no ]
+
+[value lt 0 2 4 |?~-1 |0~1 |2~3 ]
+if value < 0
+if value < 2
+if value < 4
+else

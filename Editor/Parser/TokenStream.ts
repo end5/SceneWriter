@@ -42,7 +42,7 @@ export class TokenStream {
             this.tokens[this.pos].type === TokenType.Newline ||
             this.tokens[this.pos].type === TokenType.Space
         )) {
-            this.pos++
+            this.pos++;
             ate = true;
         }
         return ate;

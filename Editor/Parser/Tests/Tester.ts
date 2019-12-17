@@ -27,8 +27,7 @@ export function test(name: string, input: TestInput, output: TestOutput) {
     const results = {
         text: interpretResult.result === output.result,
         pos: interpretResult.ranges.every((pos, idx) => compareTextRange(pos, output.ranges[idx])),
-        // code: interpretResult.code === output.code,
-        code: true,
+        code: interpretResult.code === output.code,
     };
 
     if (results.text && results.pos && results.code) {
@@ -62,8 +61,9 @@ export function test(name: string, input: TestInput, output: TestOutput) {
     for (const error of parserResult.errors)
         log += '\n| ' + chalk.magenta(error.range + '') + ' ' + chalk.red(error.msg);
 
-    log += '\n| -- Stack';
-    log += '\n| ' + JSON.stringify(interpretResult.stack);
+    // For debugging
+    // log += '\n| -- Stack';
+    // log += '\n| ' + JSON.stringify(interpretResult.stack);
 
     console.log(log);
 }

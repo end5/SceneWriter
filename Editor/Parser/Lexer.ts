@@ -1,6 +1,6 @@
 import { StringStream } from './StringStream';
-import { TokenType, Token } from './Token';
 import { TextRange } from './TextRange';
+import { Token, TokenType } from './Token';
 
 export interface LexerState {
     codeStack: CodeState[];
@@ -57,7 +57,7 @@ export function lex(text: string, returnStates?: boolean): Token[] | LexerState[
 
 function copyState(state: LexerState) {
     const copy: LexerState = JSON.parse(JSON.stringify(state));
-    copy.token.range = new TextRange(copy.token.range.start, copy.token.range.end)
+    copy.token.range = new TextRange(copy.token.range.start, copy.token.range.end);
     return copy;
 }
 
@@ -99,7 +99,7 @@ function tokenize(stream: StringStream, state: LexerState) {
     if (state.beginNewline) {
         state.beginNewline = false;
         if (stream.eat(TokenSymbol.Space) || stream.eat(TokenSymbol.Tab)) {
-            while (stream.eat(TokenSymbol.Space) || stream.eat(TokenSymbol.Tab)) { }
+            while (stream.eat(TokenSymbol.Space) || stream.eat(TokenSymbol.Tab));
             return TokenType.Space;
         }
     }
@@ -135,7 +135,7 @@ function tokenize(stream: StringStream, state: LexerState) {
     // Start - ...[<>... ...|...]...
     if (state.codeStack[0] === CodeState.CodeStart) {
         if (stream.eat(TokenSymbol.Space) || stream.eat(TokenSymbol.Tab)) {
-            while (stream.eat(TokenSymbol.Space) || stream.eat(TokenSymbol.Tab)) { }
+            while (stream.eat(TokenSymbol.Space) || stream.eat(TokenSymbol.Tab));
             return TokenType.Space;
         }
         // Move state from CodeStart to Identity
@@ -144,7 +144,7 @@ function tokenize(stream: StringStream, state: LexerState) {
     // Identity - ...[<...> ...|...]...
     if (state.codeStack[0] === CodeState.Identity) {
         if (stream.eat(TokenSymbol.Space) || stream.eat(TokenSymbol.Tab)) {
-            while (stream.eat(TokenSymbol.Space) || stream.eat(TokenSymbol.Tab)) { }
+            while (stream.eat(TokenSymbol.Space) || stream.eat(TokenSymbol.Tab));
             // Move state from Identity to Arguments
             state.codeStack.unshift(CodeState.Arguments);
             return TokenType.Space;
@@ -192,7 +192,7 @@ function tokenize(stream: StringStream, state: LexerState) {
     // Arguments - ...[... <...>|...]...
     if (state.codeStack[0] === CodeState.Arguments) {
         if (stream.eat(TokenSymbol.Space) || stream.eat(TokenSymbol.Tab)) {
-            while (stream.eat(TokenSymbol.Space) || stream.eat(TokenSymbol.Tab)) { }
+            while (stream.eat(TokenSymbol.Space) || stream.eat(TokenSymbol.Tab));
             return TokenType.Space;
         }
         else if (stream.eat(TokenSymbol.Dot)) {

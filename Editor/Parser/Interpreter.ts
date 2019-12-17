@@ -137,8 +137,6 @@ export class Interpreter {
                     else
                         valueStack.push(valueStack.splice(jumpPos));
 
-                    posStack.splice(jumpPos);
-
                     const posArr = posStack.splice(jumpPos);
                     const nodes = [];
                     for (const child of posArr)
@@ -234,7 +232,6 @@ export class Interpreter {
                     }
 
                     valueStack.push(left[right]);
-                    posStack.push(node.data.range);
                     break;
                 }
             }

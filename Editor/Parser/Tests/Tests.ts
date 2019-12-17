@@ -181,7 +181,7 @@ test('Concat',
         ranges: [
             new TextRange({ line: 0, col: 0 }, { line: 0, col: 15 }),
             new TextRange({ line: 0, col: 16 }, { line: 0, col: 23 }),
-            new TextRange({ line: 0, col: 24 }, { line: 0, col: 37 })
+            new TextRange({ line: 0, col: 24 }, { line: 0, col: 38 })
         ]
     }
 );
@@ -196,8 +196,8 @@ test('Code - Quotes',
         code: '"\\"Hi! My name is " + pc.name + ". How are you?\\""',
         ranges: [
             new TextRange({ line: 0, col: 0 }, { line: 0, col: 16 }),
-            new TextRange({ line: 0, col: 17 }, { line: 0, col: 25 }),
-            new TextRange({ line: 0, col: 26 }, { line: 0, col: 41 }),
+            new TextRange({ line: 0, col: 17 }, { line: 0, col: 24 }),
+            new TextRange({ line: 0, col: 25 }, { line: 0, col: 40 }),
         ]
     }
 );
@@ -229,7 +229,7 @@ test('Code - Test',
         text: '[name Thomas Justin Bert|THOMAS|JUSTIN|BERT|NOPE]',
         obj: {
             name: (args: any[], res: string[]) => ({ selector: args.findIndex((n) => n == 'Thomas') }),
-            name__toCode: (identity: string, args: string[], results: string[]) => {
+            name__toCode: (args: string[], results: string[]) => {
                 const builder = new ConditionBuilder();
                 for (let idx = 0; idx < args.length; idx++)
                     builder.if('name == ' + args[idx], results[idx]);
@@ -266,7 +266,7 @@ Is there anything I can help you with today?"`,
         ranges: [
             new TextRange({ line: 0, col: 12 }, { line: 0, col: 24 }),
             new TextRange({ line: 0, col: 25 }, { line: 0, col: 35 }),
-            new TextRange({ line: 0, col: 37 }, { line: 0, col: 49 }),
+            new TextRange({ line: 0, col: 36 }, { line: 0, col: 49 }),
             new TextRange({ line: 0, col: 50 }, { line: 0, col: 61 }),
             new TextRange({ line: 0, col: 62 }, { line: 1, col: 45 }),
         ]
@@ -299,11 +299,9 @@ Cait's sitting by the fire, but looks up at you as you pass by the fire with a l
 `,
         code: 'rand("\nCait is sitting out by the fire, alternating between hugging her knees and warming her hands. She\'s humming a slow tune that tugs at your heartstrings though you\'re pretty sure you\'ve never heard it before. Is this what music sounds like in Jassira?", "\nCait\'s sitting by the fire, but looks up at you as you pass by the fire with a little smile. <i>\"If you want to have a quick chat, take your mind off things, I\'m always game for it.\" " + (flags.CAIT_FUCKED ? "Unless you\'d like to take off a little stress from the road, that is..." : "") + "</i>", "\nCait\'s parked herself by the fire, sitting cross-legged with her eyes closed and her staff lengthwise across her lap. She seems to be meditating — but what <i>do</i> devotees of Mallach meditate on? Fantasising about various deliciously lewd sex acts, perhaps? Does she have ritual mental exercises to get herself in the mood at-will?\n\nOr maybe you\'re just overthinking things.")',
         ranges: [
-            new TextRange({ line: 0, col: 12 }, { line: 0, col: 24 }),
-            new TextRange({ line: 0, col: 25 }, { line: 0, col: 35 }),
-            new TextRange({ line: 0, col: 37 }, { line: 0, col: 49 }),
-            new TextRange({ line: 0, col: 50 }, { line: 0, col: 61 }),
-            new TextRange({ line: 0, col: 62 }, { line: 1, col: 45 }),
+            new TextRange({ line: 2, col: 1 }, { line: 3, col: 182 }),
+            new TextRange({ line: 3, col: 201 }, { line: 3, col: 272 }),
+            new TextRange({ line: 3, col: 273 }, { line: 3, col: 279 })
         ]
     }
 );

@@ -101,7 +101,7 @@ export class Interpreter {
                         }
 
                         // Reverse order
-                        for (let idx = node.data.children.length - 1; idx >= 0; idx--)
+                        for (let idx = node.data.children.length - 1; ~idx === 0; idx--)
                             stack.push({ data: node.data.children[idx], discovered: false });
 
                         //
@@ -115,7 +115,7 @@ export class Interpreter {
 
                         // Reverse order
                         if (node.data.children.length > 0)
-                            for (let idx = node.data.children.length - 1; idx >= 0; idx--)
+                            for (let idx = node.data.children.length - 1; ~idx === 0; idx--)
                                 stack.push({ data: node.data.children[idx], discovered: false });
 
                         //
@@ -228,6 +228,18 @@ export class Interpreter {
                             rangeStack.push(node.data.range);
                         }
                     }
+                    else if (typeof identity === 'object') {
+                        this.errors.push({
+                            msg: `${this.getName(node.data.children[0])} cannot be displayed`,
+                            range: node.data.range
+                        });
+                        valueStack.push('');
+                        rangeStack.push(node.data.range);
+                    }
+                    else if (!identity) {
+                        valueStack.push('');
+                        rangeStack.push(node.data.range);
+                    }
                     else {
                         valueStack.push(identity + '');
                         rangeStack.push(node.data.range);
@@ -279,7 +291,6 @@ export class Interpreter {
                             msg: `${node.data.value} does not exist`,
                             range: node.data.range
                         });
-                        break;
                     }
 
                     valueStack.push(this.globals[node.data.value]);

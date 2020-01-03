@@ -2,6 +2,42 @@ import { ConditionBuilder } from "../ConditionBuilder";
 import { TextRange } from "../TextRange";
 import { test } from "./Tester";
 
+test('Nothing',
+    {
+        text: '',
+        obj: { },
+    },
+    {
+        result: '',
+        code: '""',
+        ranges: [new TextRange({ line: 0, col: 0 }, { line: 0, col: 0 })]
+    }
+);
+
+test('String',
+    {
+        text: 'string',
+        obj: { },
+    },
+    {
+        result: 'string',
+        code: '"string"',
+        ranges: [new TextRange({ line: 0, col: 0 }, { line: 0, col: 6 })]
+    }
+);
+
+test('Object',
+    {
+        text: '[test]',
+        obj: { test: { a: 'a'} },
+    },
+    {
+        result: '',
+        code: 'test',
+        ranges: [new TextRange({ line: 0, col: 1 }, { line: 0, col: 5 })]
+    }
+);
+
 test('Retrieve string',
     {
         text: '[name]',

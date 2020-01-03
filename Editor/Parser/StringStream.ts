@@ -43,7 +43,7 @@ export class StringStream {
             index = this.str.indexOf(char, startPos);
 
             // Match was found
-            if (index > -1) {
+            if (~index) {
                 matchFound = true;
                 // char found at start position
                 // cannnot progress

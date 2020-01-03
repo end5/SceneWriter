@@ -24,9 +24,14 @@ export function test(name: string, input: TestInput, output: TestOutput) {
     const interpreter = new Interpreter(parserResult.root, input.obj);
     const interpretResult = interpreter.interpret();
 
-    const results = {
+    const results = typeof interpretResult === 'string' ?
+        {
+            text: false,
+            pos: false,
+            code: false,
+        } : {
         text: interpretResult.result === output.result,
-        pos: interpretResult.ranges.every((pos, idx) => compareTextRange(pos, output.ranges[idx])),
+            pos: (output.ranges.length === 0 && interpretResult.ranges.length === 0) || interpretResult.ranges.every((pos, idx) => compareTextRange(pos, output.ranges[idx])),
         code: interpretResult.code === output.code,
     };
 
@@ -50,13 +55,18 @@ export function test(name: string, input: TestInput, output: TestOutput) {
             chalk.yellow(`<${state.codeStack.reverse()}>`) + ' ' +
             state.text;
 
+    if (typeof interpretResult === 'string') {
+        log += '\n| -- Result';
+        log += '\n| ' + interpretResult;
+    }
+    else {
     log += '\n| -- Result';
     log += '\n| ' + interpretResult.result;
     log += '\n| -- Ranges';
     log += '\n| ' + interpretResult.ranges;
     log += '\n| -- Code';
     log += '\n| ' + interpretResult.code;
-
+    }
     log += '\n| -- Errors';
     for (const error of parserResult.errors)
         log += '\n| ' + chalk.magenta(error.range + '') + ' ' + chalk.red(error.msg);

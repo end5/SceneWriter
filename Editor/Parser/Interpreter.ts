@@ -39,7 +39,7 @@ export class Interpreter {
         let obj = this.globals;
         for (let idx = 0; idx < arr.length; idx++) {
             if (!(arr[idx] in obj)) return;
-            if (idx === arr.length - 1)
+            if (idx === arr.length - 1 && (arr[idx] + '__toCode') in obj)
                 obj = obj[arr[idx] + '__toCode'];
             else
                 obj = obj[arr[idx]];
@@ -211,13 +211,25 @@ export class Interpreter {
                         }
                     }
                     else if (typeof identity === 'boolean') {
+                        if (results.length == 0) {
+                            this.errors.push({
+                                msg: this.getName(node.data.children[0]) + ' needs at least one result',
+                                range: node.data.range
+                            });
+                        }
+                        else if (results.length > 2) {
+                            this.errors.push({
+                                msg: this.getName(node.data.children[0]) + ' can select up to 2 results',
+                                range: node.data.range
+                            });
+                        }
                         // condition ? [result1] : result2
-                        if (identity && results[0]) {
+                        if (identity && results.length > 0 && results[0]) {
                             valueStack.push(results[0]);
                             rangeStack.push(resultsPos[0]);
                         }
                         // condition ? result1 : [result2]
-                        else if (!identity && results[1]) {
+                        else if (!identity && results.length > 1 && results[1]) {
                             valueStack.push(results[1]);
                             rangeStack.push(resultsPos[1]);
                         }
@@ -248,7 +260,7 @@ export class Interpreter {
                     const resultsCode = codeStack.splice(jumpPosResults);
                     const argsCode = codeStack.splice(jumpPosArgs);
                     const identityCode = codeStack.pop();
-                    if (!identityCode) return 'Identity not found on codeStack';
+                    if (!identityCode) return this.getName(node.data.children[0]) + 'Identity not found on codeStack';
 
                     // Get toCode function
                     const toCodeFunc = this.getToCode(identityCode.split('.'));

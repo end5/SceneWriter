@@ -7,7 +7,6 @@ export enum NodeType {
     Concat = 'concat',
     Eval = 'eval',
     Retrieve = 'retrieve',
-    Access = 'access',
     Args = 'args',
     Results = 'results',
     Error = 'error'
@@ -26,7 +25,7 @@ export function isErrorNode(node: Node<NodeType, any, any>): node is ErrorNode {
     return node.type === NodeType.Error;
 }
 
-export type AllNodes = StringNode | ConcatNode | EvalNode | NumberNode | IdentityNode | AccessNode | RetrieveNode | ErrorNode | ArgsNode | ResultsNode;
+export type AllNodes = StringNode | ConcatNode | EvalNode | NumberNode | IdentityNode | RetrieveNode | ErrorNode | ArgsNode | ResultsNode;
 
 export type TextNodes = StringNode | ConcatNode | EvalNode;
 
@@ -36,42 +35,27 @@ export class ConcatNode extends Node<NodeType.Concat, TextNodes[], undefined> {
     }
 }
 
-export class EvalNode extends Node<NodeType.Eval,
-    [RetrieveNode | AccessNode, ArgsNode, ResultsNode],
-    undefined> {
-
-    public constructor(range: TextRange, children: [RetrieveNode | AccessNode, ArgsNode, ResultsNode]) {
+export class EvalNode extends Node<NodeType.Eval, [RetrieveNode, ArgsNode, ResultsNode], undefined> {
+    public constructor(range: TextRange, children: [RetrieveNode, ArgsNode, ResultsNode]) {
         super(NodeType.Eval, range, children, undefined);
     }
 }
 
-export class ArgsNode extends Node<NodeType.Args,
-    (StringNode | NumberNode)[],
-    undefined> {
-
+export class ArgsNode extends Node<NodeType.Args, (StringNode | NumberNode)[], undefined> {
     public constructor(range: TextRange, children: (StringNode | NumberNode)[]) {
         super(NodeType.Args, range, children, undefined);
     }
 }
 
-export class ResultsNode extends Node<NodeType.Results,
-TextNodes[],
-    undefined> {
-
+export class ResultsNode extends Node<NodeType.Results, TextNodes[], undefined> {
     public constructor(range: TextRange, children: TextNodes[]) {
         super(NodeType.Results, range, children, undefined);
     }
 }
 
-export class AccessNode extends Node<NodeType.Access, [RetrieveNode | AccessNode, IdentityNode], undefined> {
-    public constructor(range: TextRange, children: [RetrieveNode | AccessNode, IdentityNode]) {
-        super(NodeType.Access, range, children, undefined);
-    }
-}
-
-export class RetrieveNode extends Node<NodeType.Retrieve, never[], string> {
-    public constructor(range: TextRange, value: string) {
-        super(NodeType.Retrieve, range, [], value);
+export class RetrieveNode extends Node<NodeType.Retrieve, IdentityNode[], undefined> {
+    public constructor(range: TextRange, children: IdentityNode[]) {
+        super(NodeType.Retrieve, range, children, undefined);
     }
 }
 

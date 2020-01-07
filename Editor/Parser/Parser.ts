@@ -1,4 +1,4 @@
-import { AccessNode, ArgsNode, ConcatNode, ErrorNode, EvalNode, IdentityNode, isErrorNode, NumberNode, ResultsNode, RetrieveNode, StringNode, TextNodes } from "./Node";
+import { ArgsNode, ConcatNode, ErrorNode, EvalNode, IdentityNode, isErrorNode, NumberNode, ResultsNode, RetrieveNode, StringNode, TextNodes } from "./Node";
 import { TextRange } from './TextRange';
 import { Token, TokenType } from "./Token";
 import { TokenStream } from './TokenStream';
@@ -137,7 +137,7 @@ export class Parser {
 
     private eval() {
 
-        const identityNode = this.access();
+        const identityNode = this.retrieve();
         if (isErrorNode(identityNode)) return identityNode;
 
         const argNodes = this.arguments();
@@ -158,7 +158,7 @@ export class Parser {
 
     }
 
-    private access() {
+    private retrieve() {
         this.stream.whitespace();
 
         let token = this.stream.consume(TokenType.Identity);
@@ -169,11 +169,9 @@ export class Parser {
             );
 
         // Retrieve node to get value from global
-        let rootNode;
-
-        rootNode = new RetrieveNode(
+        const rootNode = new RetrieveNode(
             new TextRange(token.range.start, token.range.end),
-            this.getText(token)
+            [new IdentityNode(token.range, this.getText(token))]
         );
 
         while (this.stream.match(TokenType.Dot)) {
@@ -186,16 +184,14 @@ export class Parser {
                     'Identity'
                 );
 
-            rootNode = new AccessNode(
-                new TextRange(rootNode.range.start, token.range.end),
-                [
-                    rootNode,
-                    new IdentityNode(
-                        new TextRange(token.range.start, token.range.end),
-                        this.getText(token)
-                    )
-                ]
+            rootNode.children.push(
+                new IdentityNode(
+                    new TextRange(token.range.start, token.range.end),
+                    this.getText(token)
+                )
             );
+
+            rootNode.range.end = token.range.end;
         }
 
         return rootNode;

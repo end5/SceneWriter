@@ -8,8 +8,7 @@ export enum NodeType {
     Eval = 'eval',
     Retrieve = 'retrieve',
     Args = 'args',
-    Results = 'results',
-    Error = 'error'
+    Results = 'results'
 }
 
 export class Node<T extends NodeType, C, V> {
@@ -21,11 +20,7 @@ export class Node<T extends NodeType, C, V> {
     ) { }
 }
 
-export function isErrorNode(node: Node<NodeType, any, any>): node is ErrorNode {
-    return node.type === NodeType.Error;
-}
-
-export type AllNodes = StringNode | ConcatNode | EvalNode | NumberNode | IdentityNode | RetrieveNode | ErrorNode | ArgsNode | ResultsNode;
+export type AllNodes = StringNode | ConcatNode | EvalNode | NumberNode | IdentityNode | RetrieveNode | ArgsNode | ResultsNode;
 
 export type TextNodes = StringNode | ConcatNode | EvalNode;
 
@@ -74,11 +69,5 @@ export class StringNode extends Node<NodeType.String, never[], string> {
 export class IdentityNode extends Node<NodeType.Identity, never[], string> {
     public constructor(range: TextRange, value: string) {
         super(NodeType.Identity, range, [], value);
-    }
-}
-
-export class ErrorNode extends Node<NodeType.Error, never[], string> {
-    public constructor(range: TextRange, value: string) {
-        super(NodeType.Error, range, [], value);
     }
 }

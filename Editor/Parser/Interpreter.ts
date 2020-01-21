@@ -1,409 +1,330 @@
-import { AllNodes, NodeType, RetrieveNode } from "./Node";
-import { TextRange } from './TextRange';
+import { LangError } from "./LangError";
+import { AllNodes, ArgsNode, ConcatNode, EvalNode, IdentityNode, NodeType, NumberNode, ResultsNode, RetrieveNode, StringNode, TextNodes } from "./Node";
+import { Product } from "./Product";
+import { TextRange } from "./TextRange";
 
-export interface InterpretError {
-    range: TextRange;
-    msg: string;
+interface FunctionInfo {
+    argResultValidator?: (args: (string | number)[], results: string[]) => string | undefined;
+    toCode?: (args: (string | number)[], results: string[]) => string;
 }
 
-interface DiscoveryNode<T> {
-    data: T;
-    discovered: boolean;
-}
-
-interface State {
-    nodes: DiscoveryNode<AllNodes>[];
-    value: any[];
-    jump: number[];
-    range: (TextRange | TextRange[])[];
-    code: string[];
+interface RetrieveObj {
+    value?: any;
+    self?: object;
+    caps?: boolean;
+    info?: FunctionInfo;
 }
 
 const escapePairs: [RegExp, string][] = [[/\n/g, '\\n'], [/'/g, '\\\''], [/"/g, '\\"']];
 
 export class Interpreter {
-    private errors: InterpretError[] = [];
-    private state: State;
-    // For debugging
-    private stackCopy: State[] = [];
-
-    private readonly valueOffset = 2;
-
-    public constructor() {
-        this.state = this.createStack();
-    }
-
-    private createStack(): State {
-        return {
-            nodes: [],
-            value: [],
-            jump: [],
-            range: [],
-            code: []
-        };
-    }
-
-    private storeStack() {
-        this.stackCopy.push({
-            nodes: JSON.parse(JSON.stringify(this.state.nodes)),
-            jump: JSON.parse(JSON.stringify(this.state.jump)),
-            value: JSON.parse(JSON.stringify(this.state.value)),
-            range: JSON.parse(JSON.stringify(this.state.range)),
-            code: JSON.parse(JSON.stringify(this.state.code))
-        });
-    }
-
-    private createResult() {
-        return {
-            result: this.state.value[0] + '',
-            ranges: (Array.isArray(this.state.range[0]) ? this.state.range[0] : [this.state.range[0]]) as TextRange[],
-            code: this.state.code[0],
-            errors: this.errors,
-            // For debugging
-            stack: this.stackCopy
-        };
-    }
+    private errors: LangError[] = [];
+    private globals: Record<string, any> = {};
 
     private getName(node: RetrieveNode) {
-        return node.children.map((child) => child.value).join('.');
+        let name = '';
+        for (let idx = 0; idx < node.children.length; idx++) {
+            if (idx > 0) name += '.';
+            name += node.children[idx].value;
+        }
+        return name;
     }
 
-    public interpret(root: AllNodes, globals: Record<string, any>) {
-        this.state = this.createStack();
-        this.state.nodes.push({ data: root, discovered: false });
+    private escape(text: string) {
+        let escapedText = text;
+        for (const pair of escapePairs) {
+            escapedText = escapedText.replace(pair[0], pair[1]);
+        }
+        return escapedText;
+    }
 
-        let node: DiscoveryNode<AllNodes>;
+    private createError(range: TextRange, msg: string) {
+        this.errors.push(new LangError(range, msg));
+    }
 
-        while (this.state.nodes.length > 0) {
-            // For debugging
-            this.storeStack();
+    public interpret(node: TextNodes, globals: Record<string, any>) {
+        this.errors = [];
+        this.globals = globals;
+        let output;
+        try {
+            output = this.processNode(node);
+        }
+        catch (err) {
+            this.createError(node.range, err);
+            return {
+                result: '',
+                ranges: [node.range],
+                code: '',
+                errors: this.errors
+            };
+        }
+        return {
+            result: output.value as string,
+            ranges: (Array.isArray(output.range) ? output.range : [output.range]),
+            code: output.code,
+            errors: this.errors
+        };
+    }
 
-            node = this.state.nodes[this.state.nodes.length - 1];
+    private processNode(node: AllNodes) {
+        switch (node.type) {
+            case NodeType.Identity: return this.evalIdentityNode(node);
+            case NodeType.String: return this.evalStringNode(node);
+            case NodeType.Number: return this.evalNumberNode(node);
+            case NodeType.Concat: return this.evalConcatNode(node);
+            case NodeType.Eval: return this.evalEvalNode(node);
+            case NodeType.Retrieve: return this.evalRetrieveNode(node);
+            case NodeType.Args: return this.evalArgsNode(node);
+            case NodeType.Results: return this.evalResultsNode(node);
+        }
+    }
 
-            // Discover Section
-            if (!node.discovered) {
-                node.discovered = true;
-                switch (node.data.type) {
-                    // No children, so nothing to discover
-                    case NodeType.Identity:
-                    case NodeType.String:
-                    case NodeType.Number:
-                    case NodeType.Error:
-                        break;
+    private evalStringNode(node: StringNode): Product<string> {
+        return new Product(
+            node.range,
+            node.value,
+            '"' + this.escape(node.value) + '"'
+        );
+    }
 
-                    // These have children, so process the children first
+    private evalNumberNode(node: NumberNode): Product<number> {
+        return new Product(
+            node.range,
+            node.value,
+            node.value + ''
+        );
+    }
 
-                    // These are lists of unknown length.
-                    // Store the starting position in jumpStack
-                    // so we know where to return to.
-                    case NodeType.Concat:
-                        // Don't process nodes with no children
-                        if (node.data.children.length === 0) {
-                            this.state.nodes.pop();
-                            continue;
-                        }
+    private evalIdentityNode(node: IdentityNode): Product<string> {
+        return new Product(
+            node.range,
+            node.value,
+            node.value + ''
+        );
+    }
 
-                        // Reverse order
-                        if (node.data.children.length > 0)
-                            for (let idx = node.data.children.length - 1; idx >= 0; idx--)
-                                this.state.nodes.push({ data: node.data.children[idx], discovered: false });
+    private evalConcatNode(node: ConcatNode): Product<string> {
+        const values = node.children.map((child) => this.processNode(child));
+        const ranges = [];
+        for (const child of values)
+            if (Array.isArray(child.range))
+                ranges.push(...child.range);
+            else
+                ranges.push(child.range);
 
-                        //
-                        this.state.jump.push(this.state.value.length - this.valueOffset);
-                        continue;
-
-                    case NodeType.Args:
-                    case NodeType.Results:
-                        // Does not process
-                        this.state.nodes.pop();
-
-                        // Reverse order
-                        if (node.data.children.length > 0)
-                            for (let idx = node.data.children.length - 1; idx >= 0; idx--)
-                                this.state.nodes.push({ data: node.data.children[idx], discovered: false });
-
-                        //
-                        this.state.jump.push(this.state.value.length - this.valueOffset);
-                        continue;
-
-                    case NodeType.Eval:
-                        // Reverse order
-                        this.state.nodes.push({ data: node.data.children[2], discovered: false });
-                        this.state.nodes.push({ data: node.data.children[1], discovered: false });
-                        this.state.nodes.push({ data: node.data.children[0], discovered: false });
-
-                        // This range helps the stack from becoming unstable
-                        this.state.range.push(node.data.range);
-                        continue;
-
-                    case NodeType.Retrieve:
-                        // Reverse order
-                        if (node.data.children.length > 0)
-                            for (let idx = node.data.children.length - 1; idx >= 0; idx--)
-                                this.state.nodes.push({ data: node.data.children[idx], discovered: false });
-
-                        //
-                        this.state.jump.push(this.state.value.length - this.valueOffset);
-                        continue;
-                }
-            }
-
-            // Process Section
-            switch (node.data.type) {
-                case NodeType.String:
-                    this.state.range.push(node.data.range);
-                    this.state.value.push(node.data.value);
-                    // Always escape strings
-                    this.state.code.push('"' + escapePairs.reduce((str, pair) => str.replace(pair[0], pair[1]), node.data.value) + '"');
-                    break;
-
-                case NodeType.Number:
-                    this.state.range.push(node.data.range);
-
-                case NodeType.Identity:
-                    this.state.value.push(node.data.value);
-                    this.state.code.push(node.data.value + '');
-                    break;
-
-                case NodeType.Args:
-                case NodeType.Results:
-                case NodeType.Error:
-                    break;
-
-                case NodeType.Concat: {
-                    if (this.state.jump.length === 0) {
-                        this.errors.push({
-                            msg: 'Attempted to get value from empty jump stack',
-                            range: node.data.range
-                        });
-                        return this.createResult();
-                    }
-                    const jumpPos = this.state.jump.pop()!;
-
-                    this.state.value.push(this.state.value.splice(jumpPos).join(''));
-
-                    // Flatten ranges
-                    const rangeArr = this.state.range.splice(jumpPos);
-                    const nodes = [];
-                    for (const child of rangeArr)
-                        if (Array.isArray(child))
-                            nodes.push(...child);
-                        else
-                            nodes.push(child);
-
-                    this.state.range.push(nodes);
-
-                    const codeArr = this.state.code.splice(jumpPos);
-                    this.state.code.push(codeArr.join(' + '));
-
-                    break;
-                }
-
-                case NodeType.Eval: {
-                    // Reverse order
-                    if (this.state.jump.length < 2) {
-                        this.errors.push({
-                            msg: 'Attempted to get 2 values from empty jump stack',
-                            range: node.data.range
-                        });
-                        return this.createResult();
-                    }
-                    const jumpPosResults = this.state.jump.pop()!;
-                    const jumpPosArgs = this.state.jump.pop()!;
-
-                    const results = this.state.value.splice(jumpPosResults);
-                    const args = this.state.value.splice(jumpPosArgs);
-                    const retrieveInfo = this.state.value.pop();
-                    const retrieve = this.state.value.pop();
-
-                    // -1 because of the extra "info" on the value stack
-                    const resultsPos = this.state.range.splice(jumpPosResults - 1);
-                    // Not used but still need to be removed from the stack
-                    this.state.range.splice(jumpPosArgs - 1);
-                    this.state.range.pop();
-
-                    const errorCount = this.errors.length;
-
-                    // Error checking
-                    if (typeof retrieve === 'function') {
-                        if (typeof retrieveInfo === 'object') {
-                            if ('argsCount' in retrieveInfo && args.length < retrieveInfo.argsCount) {
-                                this.errors.push({
-                                    msg: `${this.getName(node.data.children[0])} needs ${args.length - retrieveInfo.argsCount} more args`,
-                                    range: node.data.range
-                                });
-                            }
-                            if ('resultsCount' in retrieveInfo && results.length < retrieveInfo.resultsCount) {
-                                this.errors.push({
-                                    msg: `${this.getName(node.data.children[0])} needs ${results.length - retrieveInfo.resultsCount} more results`,
-                                    range: node.data.range
-                                });
-                            }
-                        }
-                    }
-                    else if (typeof retrieve === 'boolean') {
-                        if (results.length == 0) {
-                            this.errors.push({
-                                msg: this.getName(node.data.children[0]) + ' needs at least 1 result',
-                                range: node.data.range
-                            });
-                        }
-                        else if (results.length > 2) {
-                            this.errors.push({
-                                msg: this.getName(node.data.children[0]) + ' can have up to 2 results',
-                                range: node.data.range
-                            });
-                        }
-                    }
-                    else if (typeof retrieve === 'object' || retrieve === null || retrieve === undefined) {
-                        this.errors.push({
-                            msg: `${this.getName(node.data.children[0])} cannot be displayed`,
-                            range: node.data.range
-                        });
-                    }
-
-                    if (errorCount === this.errors.length) {
-                        if (typeof retrieve === 'function') {
-                            const result = retrieve(args, results);
-                            // Handle selecting from results here
-                            if (typeof result === 'object' && 'selector' in result && results[result.selector]) {
-                                this.state.value.push(results[result.selector]);
-                                this.state.range.push(resultsPos[result.selector]);
-                            }
-                            else {
-                                this.state.value.push(result + '');
-                                this.state.range.push(node.data.range);
-                            }
-                        }
-                        else if (typeof retrieve === 'boolean') {
-                            // condition ? [result1] : result2
-                            if (retrieve && results.length > 0 && results[0]) {
-                                this.state.value.push(results[0]);
-                                this.state.range.push(resultsPos[0]);
-                            }
-                            // condition ? result1 : [result2]
-                            else if (!retrieve && results.length > 1 && results[1]) {
-                                this.state.value.push(results[1]);
-                                this.state.range.push(resultsPos[1]);
-                            }
-                            // condition ? result1 : []
-                            // condition ? [] : result2
-                            else {
-                                this.state.value.push('');
-                                this.state.range.push(node.data.range);
-                            }
-                        }
-                        else {
-                            this.state.value.push(retrieve + '');
-                            this.state.range.push(node.data.range);
-                        }
-                    }
-                    else {
-                        this.state.value.push('');
-                        this.state.range.push(node.data.range);
-                    }
-
-                    // -1 because of the extra "info" on the value stack
-                    const resultsCode = this.state.code.splice(jumpPosResults - 1);
-                    const argsCode = this.state.code.splice(jumpPosArgs - 1);
-                    const retrieveCode = this.state.code.pop();
-                    if (!retrieveCode) {
-                        this.errors.push({
-                            msg: 'Retrieve code not found on code stack',
-                            range: node.data.range
-                        });
-                        return this.createResult();
-                    }
-
-                    if (typeof retrieveInfo === 'object' && 'toCode' in retrieveInfo) {
-                        this.state.code.push(retrieveInfo.toCode(argsCode, resultsCode));
-                    }
-                    else {
-                        // Defaults
-                        // type function        -> identity()
-                        // type other           -> identity
-                        // args + results       -> identity([arg0, arg1, ...], [result0, result1, ...])
-                        // args                 -> identity(arg0, arg1, ...)
-                        // type bool + results  -> identity ? result0 : (result1 or "")
-                        // results              -> identity(result0, result1, ...)
-                        if (argsCode.length === 0 && resultsCode.length === 0) {
-                            if (typeof retrieve === 'function')
-                                this.state.code.push(retrieveCode + '()');
-                            else
-                                this.state.code.push(retrieveCode);
-                        }
-                        else if (argsCode.length > 0 && resultsCode.length > 0)
-                            this.state.code.push(`${retrieveCode}([${argsCode.join(', ')}], [${resultsCode.join(', ')}])`);
-                        else if (argsCode.length > 0)
-                            this.state.code.push(`${retrieveCode}(${argsCode.join(', ')})`);
-                        else {
-                            if (typeof retrieve === 'boolean') {
-                                if (resultsCode.length === 1)
-                                    this.state.code.push(`(${retrieveCode} ? ${resultsCode[0]} : "")`);
-                                if (resultsCode.length === 2)
-                                    this.state.code.push(`(${retrieveCode} ? ${resultsCode[0]} : ${resultsCode[1]})`);
-                            }
-                            else
-                                this.state.code.push(`${retrieveCode}(${resultsCode.join(', ')})`);
-                        }
-                    }
-
-                    break;
-                }
-
-                case NodeType.Retrieve: {
-                    if (this.state.jump.length === 0) {
-                        this.errors.push({
-                            msg: 'Attempted to get value from empty jump stack',
-                            range: node.data.range
-                        });
-                        return this.createResult();
-                    }
-                    const jumpPos = this.state.jump.pop()!;
-
-                    let obj = globals;
-                    const identities = this.state.value.splice(jumpPos);
-                    let name = '';
-
-                    let infoObj = {};
-                    let broke = false;
-                    for (let idx = 0; idx < identities.length; idx++) {
-                        if (typeof obj !== 'object' || !(identities[idx] in obj)) {
-                            this.errors.push({
-                                msg: `"${node.data.value}" does not exist${name ? ` in "${name}"` : ''}`,
-                                range: node.data.range
-                            });
-                            broke = true;
-                            break;
-                        }
-
-                        if (idx === identities.length - 1 && (identities[idx] + '__info') in obj) {
-                            infoObj = obj[identities[idx] + '__info'];
-                        }
-
-                        obj = obj[identities[idx]];
-                        name += (name ? '.' : '') + identities[idx];
-                    }
-
-                    if (broke) {
-                        this.state.value.push({});
-                        this.state.value.push(infoObj);
-                    }
-                    else {
-                        this.state.value.push(obj);
-                        this.state.value.push(infoObj);
-                    }
-
-                    const codeName = this.state.code.splice(jumpPos);
-                    this.state.code.push(codeName.join('.'));
-
-                    break;
-                }
-            }
-
-            this.state.nodes.pop();
+        let valueStr = '';
+        let codeStr = '';
+        for (let idx = 0; idx < values.length; idx++) {
+            valueStr += values[idx].value;
+            if (idx > 0) codeStr += ' + ';
+            codeStr += values[idx].code;
         }
 
-        return this.createResult();
+        return new Product(
+            ranges,
+            valueStr,
+            codeStr
+        );
+    }
+
+    private evalRetrieveNode(node: RetrieveNode): Product<RetrieveObj> {
+        const values = node.children.map((child) => this.processNode(child) as Product<string>);
+        let obj = this.globals;
+        let name = '';
+
+        let infoObj;
+        let identity;
+        let selfObj;
+        const caps = false;
+        for (let idx = 0; idx < values.length; idx++) {
+            identity = values[idx].value;
+
+            // Determine if capitalization is needed
+            // if (identity.charAt(0).toLocaleUpperCase() === identity.charAt(0)) {
+            //     caps = true;
+            //     identity = identity.charAt(0).toLocaleLowerCase() + identity.slice(1);
+            // }
+
+            if (typeof obj !== 'object' || !(identity in obj)) {
+                this.createError(
+                    node.range,
+                    `"${node.value}" does not exist${name ? ` in "${name}"` : ''}`
+                );
+                return new Product<RetrieveObj>(
+                    node.range,
+                    {},
+                    ''
+                );
+            }
+
+            if (idx === values.length - 1 && (identity + '__info') in obj) {
+                infoObj = obj[identity + '__info'];
+            }
+
+            selfObj = obj;
+            obj = obj[identity];
+            if (name.length > 0) name += '.';
+            name += identity;
+        }
+
+        return new Product<RetrieveObj>(
+            node.range,
+            {
+                value: obj,
+                self: selfObj,
+                caps,
+                info: infoObj
+            },
+            name
+        );
+    }
+
+    private evalArgsNode(node: ArgsNode): Product<(Product<string> | Product<number>)[]> {
+        return new Product(
+            node.range,
+            node.children.map((child) => this.processNode(child)) as (Product<string> | Product<number>)[],
+            ''
+        );
+    }
+
+    private evalResultsNode(node: ResultsNode): Product<(Product<string>)[]> {
+        return new Product(
+            node.range,
+            node.children.map((child) => this.processNode(child)) as (Product<string>)[],
+            ''
+        );
+    }
+
+    private evalEvalNode(node: EvalNode): Product<string> {
+        let errorMsg;
+        if (node.children.length !== 3) {
+            errorMsg = 'incorrect amount of children for EvalNode';
+        }
+        else if (node.children[0].type !== NodeType.Retrieve) {
+            errorMsg = 'EvalNode children[0] was not a RetrieveNode';
+        }
+        else if (node.children[1].type !== NodeType.Args) {
+            errorMsg = 'EvalNode children[1] was not a ArgsNode';
+        }
+        else if (node.children[2].type !== NodeType.Results) {
+            errorMsg = 'EvalNode children[1] was not a ResultsNode';
+        }
+
+        // Error checking
+        if (errorMsg) {
+            this.createError(node.range, errorMsg);
+            return new Product(node.range, '', '');
+        }
+
+        const retrieveProduct = this.evalRetrieveNode(node.children[0]);
+        const argsProduct = this.evalArgsNode(node.children[1]);
+        const resultsProduct = this.evalResultsNode(node.children[2]);
+
+        const retrieveValue = retrieveProduct.value.value;
+        const retrieveSelf = retrieveProduct.value.self;
+        const retrieveInfo = retrieveProduct.value.info;
+        const retrieveCaps = retrieveProduct.value.caps;
+        const retrieveCode = retrieveProduct.code;
+
+        const argsValueArr = argsProduct.value.map((child) => child.value);
+        const argsCodeArr = argsProduct.value.map((child) => child.code);
+
+        const resultsValueArr = resultsProduct.value.map((child) => child.value);
+        const resultsCodeArr = resultsProduct.value.map((child) => child.code);
+
+        // Error checking
+        if (typeof retrieveValue === 'function' && retrieveInfo) {
+            if (retrieveInfo.argResultValidator) {
+                const validResult = retrieveInfo.argResultValidator(argsValueArr, resultsValueArr);
+                if (validResult != null) {
+                    errorMsg = '"' + this.getName(node.children[0]) + '" ' + validResult;
+                }
+            }
+        }
+        else if (typeof retrieveValue === 'boolean') {
+            if (resultsValueArr.length == 0) {
+                errorMsg = this.getName(node.children[0]) + ' needs at least 1 result';
+            }
+            else if (resultsValueArr.length > 2) {
+                errorMsg = this.getName(node.children[0]) + ' can have up to 2 results';
+            }
+        }
+        else if (typeof retrieveValue === 'object' || retrieveValue == null) {
+            errorMsg = this.getName(node.children[0]) + ' cannot be displayed';
+        }
+        if (errorMsg) {
+            this.createError(node.range, errorMsg);
+        }
+
+        let returnValue = '';
+        let returnRange: TextRange | TextRange[] = node.range;
+        let returnCode = '';
+        if (!errorMsg) {
+            if (typeof retrieveValue === 'function') {
+                const funcResult = retrieveValue.apply(retrieveSelf, argsValueArr.concat(resultsValueArr));
+                // Handle selecting from results here
+                if (typeof funcResult === 'object' && 'selector' in funcResult && resultsProduct.value[funcResult.selector]) {
+                    returnValue = resultsProduct.value[funcResult.selector].value;
+                    returnRange = resultsProduct.value[funcResult.selector].range;
+                }
+                else {
+                    returnValue = funcResult + '';
+                    returnRange = node.range;
+                }
+
+                // nothing              -> identity()
+                // args + results       -> identity([arg0, arg1, ...], [result0, result1, ...])
+                // args                 -> identity(arg0, arg1, ...)
+                // results              -> identity(result0, result1, ...)
+                if (argsCodeArr.length === 0 && resultsCodeArr.length === 0)
+                    returnCode = retrieveCode + '()';
+                else if (argsCodeArr.length > 0 && resultsCodeArr.length > 0)
+                    returnCode = retrieveCode + '([' + argsCodeArr.join(', ') + '], [' + resultsCodeArr.join(', ') + '])';
+                else if (argsCodeArr.length > 0)
+                    returnCode = retrieveCode + '(' + argsCodeArr.join(', ') + ')';
+                else
+                    returnCode = retrieveCode + '(' + resultsCodeArr.join(', ') + ')';
+            }
+            else if (typeof retrieveValue === 'boolean') {
+                // condition ? [result1] : result2
+                if (retrieveValue && resultsProduct.value.length > 0 && resultsProduct.value[0]) {
+                    returnValue = resultsProduct.value[0].value;
+                    returnRange = resultsProduct.value[0].range;
+                }
+                // condition ? result1 : [result2]
+                else if (!retrieveValue && resultsProduct.value.length > 1 && resultsProduct.value[1]) {
+                    returnValue = resultsProduct.value[1].value;
+                    returnRange = resultsProduct.value[1].range;
+                }
+                // condition ? result1 : []
+                // condition ? [] : result2
+                else {
+                    returnValue = '';
+                    returnRange = node.range;
+                }
+
+                // type bool + results  -> identity ? result0 : (result1 or "")
+                if (resultsCodeArr.length === 1)
+                    returnCode = '(' + retrieveCode + ' ? ' + resultsCodeArr[0] + ' : "")';
+                if (resultsCodeArr.length === 2)
+                    returnCode = '(' + retrieveCode + ' ? ' + resultsCodeArr[0] + ' : ' + resultsCodeArr[1] + ')';
+            }
+            else {
+                returnValue = retrieveValue + '';
+                returnRange = node.range;
+                returnCode = retrieveCode;
+            }
+
+            if (retrieveInfo && retrieveInfo.toCode) {
+                returnCode = retrieveInfo.toCode(argsCodeArr, resultsCodeArr);
+            }
+
+        }
+
+        if (retrieveCaps && returnValue.length > 0) {
+            returnValue = returnValue.charAt(0).toLocaleUpperCase() + returnValue.slice(1);
+        }
+
+        return new Product(returnRange, returnValue + '', returnCode);
     }
 }

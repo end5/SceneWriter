@@ -1,83 +1,66 @@
-import { ArgsNode, ConcatNode, ErrorNode, EvalNode, IdentityNode, isErrorNode, NumberNode, ResultsNode, RetrieveNode, StringNode, TextNodes } from "./Node";
-import { TextRange } from './TextRange';
-import { Token, TokenType } from "./Token";
-import { TokenStream } from './TokenStream';
-
-export interface ParserError {
-    range: TextRange;
-    msg: string;
-}
+import { LangError } from "./LangError";
+import { Lexer } from "./Lexer";
+import { ArgsNode, ConcatNode, EvalNode, IdentityNode, NumberNode, ResultsNode, RetrieveNode, StringNode, TextNodes } from "./Node";
+import { TextPosition, TextRange } from "./TextRange";
+import { TokenType } from "./Token";
 
 export interface ParserResult {
     root: TextNodes;
-    errors: ParserError[];
+    errors: LangError[];
 }
 
 export class Parser {
-    private stream: TokenStream;
-    private errors: ParserError[] = [];
-    private textStr: string;
+    private lexer: Lexer;
+    private errors: LangError[] = [];
 
-    public constructor(tokens: Token[], text: string) {
-        this.stream = new TokenStream(tokens);
-        this.textStr = text;
+    public constructor(text: string) {
+        this.lexer = new Lexer(text);
     }
 
     public parse(): ParserResult {
-        if (this.stream.eos())
-            return { root: this.empty(), errors: [] };
-
-        const root = this.concat();
-        const errors = this.errors;
-        if (!root)
-            return { root: this.empty(), errors };
-
-        return { root, errors };
+        return { root: this.concat(), errors: this.errors };
     }
 
     /**
      * A ConcatNode with one blank StringNode with specified range
      * @param range
      */
-    private empty(range = new TextRange()) {
-        return new StringNode(range, '');
+    private empty() {
+        return new StringNode(this.createRange(), '');
     }
 
-    private createError(node: ErrorNode): ParserError {
-        return { range: node.range, msg: `Expected "${node.value}"` };
+    private createStartPostion(): TextPosition {
+        return { line: this.lexer.lineStart, col: this.lexer.colStart };
     }
 
-    private getText(token: Token) {
-        return this.textStr.slice(token.range.start.col + token.offset, token.range.end.col + token.offset);
+    private createEndPostion(): TextPosition {
+        return { line: this.lexer.lineEnd, col: this.lexer.colEnd };
+    }
+
+    private createRange() {
+        return new TextRange(this.createStartPostion(), this.createEndPostion());
+    }
+
+    private createError(msg: string, range?: TextRange) {
+        this.errors.push(new LangError(range || this.createRange(), msg));
     }
 
     private concat() {
         let newNode;
         const arr = [];
 
-        while (!this.stream.eos()) {
+        while (this.lexer.peek() !== TokenType.EOS) {
             // Search until something is found
             newNode = this.code();
             if (!newNode) newNode = this.text();
             if (!newNode) break;
 
-            // Force the stream forward in case nothing was found
-            if (!newNode) {
-                this.stream.pos++;
-                continue;
-            }
-
-            if (isErrorNode(newNode)) {
-                this.errors.push(this.createError(newNode));
-            }
-            else {
-                arr.push(newNode);
-            }
+            arr.push(newNode);
         }
 
         // Nothing so force empty
         if (arr.length === 0)
-            return this.empty(new TextRange(this.stream.current.range.start, this.stream.current.range.end));
+            return this.empty();
         else if (arr.length === 1)
             return arr[0];
         else
@@ -88,57 +71,44 @@ export class Parser {
     }
 
     private text() {
-        const startToken = this.stream.current;
-        let endToken;
-        let token;
+        const start = this.createStartPostion();
         let subText = '';
-        let escapeOffset = 0;
-        while (!this.stream.eos()) {
-            this.stream.consume(TokenType.Space);
-            token = this.stream.consume(TokenType.String);
-            if (!token) token = this.stream.consume(TokenType.Escape);
-            if (!token) token = this.stream.consume(TokenType.Newline);
-            if (!token) break;
-            if (token.type === TokenType.Escape)
-                escapeOffset = 2;
-            else
-                escapeOffset = 0;
-            subText += this.textStr.slice(token.range.start.col + token.offset + escapeOffset, token.range.end.col + token.offset);
-            endToken = token;
+        let type = this.lexer.peek();
+        while (type === TokenType.Space || type === TokenType.NewLine || type === TokenType.Text || type === TokenType.Dot) {
+            subText += this.lexer.getText();
+            type = this.lexer.advance();
         }
-        if (endToken) {
-            return new StringNode(
-                new TextRange(startToken.range.start, endToken.range.end),
-                subText
-            );
-        }
-        return;
+        if (subText.length === 0) return;
+        const end = this.createStartPostion();
+        return new StringNode(
+            new TextRange(start, end),
+            subText
+        );
     }
 
-    private code(): TextNodes | ErrorNode | undefined {
+    private code(): TextNodes | undefined {
         // Leave if no bracket
-        const bracketOpenToken = this.stream.consume(TokenType.BracketOpen);
-        if (!bracketOpenToken) return;
+        if (this.lexer.peek() !== TokenType.LeftBracket) return;
+        const start = this.createStartPostion();
+        this.lexer.advance();
 
         const codeNode = this.eval();
-        if (isErrorNode(codeNode)) return codeNode;
+        if (!codeNode) return;
 
         // don't advance token stream on error
-        if (!this.stream.match(TokenType.BracketClose))
-            return new ErrorNode(
-                bracketOpenToken.range,
-                ']'
-            );
+        if (this.lexer.peek() !== TokenType.RightBracket) {
+            this.createError(`Missing ]`, new TextRange(start, this.createStartPostion()));
+            return;
+        }
 
-        this.stream.consume(TokenType.BracketClose);
+        this.lexer.advance();
 
         return codeNode;
     }
 
     private eval() {
-
         const identityNode = this.retrieve();
-        if (isErrorNode(identityNode)) return identityNode;
+        if (!identityNode) return;
 
         const argNodes = this.arguments();
         const resultNodes = this.results();
@@ -155,43 +125,39 @@ export class Parser {
             new TextRange(identityNode.range.start, rangeEnd),
             [identityNode, argNodes, resultNodes]
         );
-
     }
 
     private retrieve() {
-        this.stream.whitespace();
+        this.whitespace();
 
-        let token = this.stream.consume(TokenType.Identity);
-        if (!token)
-            return new ErrorNode(
-                new TextRange(this.stream.current.range.start, this.stream.current.range.end),
-                'Identity'
-            );
+        if (this.lexer.peek() !== TokenType.Text) {
+            this.createError(`Missing Identifier`);
+            return;
+        }
 
         // Retrieve node to get value from global
         const rootNode = new RetrieveNode(
-            new TextRange(token.range.start, token.range.end),
-            [new IdentityNode(token.range, this.getText(token))]
+            this.createRange(),
+            [new IdentityNode(this.createRange(), this.lexer.getText())]
         );
 
-        while (this.stream.match(TokenType.Dot)) {
-            this.stream.consume(TokenType.Dot);
+        this.lexer.advance();
 
-            token = this.stream.consume(TokenType.Identity);
-            if (!token)
-                return new ErrorNode(
-                    new TextRange(this.stream.current.range.start, this.stream.current.range.end),
-                    'Identity'
-                );
+        while (this.lexer.peek() === TokenType.Dot) {
+            this.lexer.advance();
+
+            if (this.lexer.peek() !== TokenType.Text) {
+                this.createError(`Missing Identifier`);
+                return;
+            }
 
             rootNode.children.push(
-                new IdentityNode(
-                    new TextRange(token.range.start, token.range.end),
-                    this.getText(token)
-                )
+                new IdentityNode(this.createRange(), this.lexer.getText())
             );
 
-            rootNode.range.end = token.range.end;
+            this.lexer.advance();
+
+            rootNode.range.end = rootNode.children[rootNode.children.length - 1].range.end;
         }
 
         return rootNode;
@@ -199,66 +165,65 @@ export class Parser {
 
     private arguments() {
         const arr = [];
+        const start = this.createStartPostion();
 
-        if (this.stream.whitespace()) {
-            // Add Value nodes to Args node
-            let valueNode;
-            do {
-                valueNode = this.getValue();
-                if (!valueNode)
-                    break;
+        // Add Value nodes to Args node
+        let valueNode;
+        while (this.lexer.peek() === TokenType.Space) {
+            this.lexer.advance();
 
-                arr.push(valueNode);
-            } while (this.stream.whitespace());
+            valueNode = this.getValue();
+            if (!valueNode)
+                break;
+
+            arr.push(valueNode);
         }
 
-        return new ArgsNode(
-            new TextRange(),
-            arr
-        );
+        let end = this.createStartPostion();
+        if (arr.length > 0)
+            end = arr[arr.length - 1].range.end;
+
+        return new ArgsNode(new TextRange(start, end), arr);
     }
 
     private results() {
         const arr = [];
+        const start = this.createStartPostion();
 
-        if (this.stream.match(TokenType.Pipe)) {
-            // Consume Pipe then ResultConcat
-            let node;
-            while (this.stream.consume(TokenType.Pipe)) {
-                node = this.resultConcat();
-                arr.push(node);
+        // Consume Pipe then ResultConcat
+        let node;
+        while (this.lexer.peek() === TokenType.Pipe) {
+            this.lexer.advance();
 
-                this.stream.whitespace();
-            }
+            node = this.resultConcat();
+            if (!node) break;
+
+            arr.push(node);
         }
 
-        return new ResultsNode(
-            new TextRange(),
-            arr
-        );
+        let end = this.createStartPostion();
+        if (arr.length > 0)
+            end = arr[arr.length - 1].range.end;
+
+        return new ResultsNode(new TextRange(start, end), arr);
     }
 
-    private resultConcat(): TextNodes {
+    private resultConcat(): TextNodes | undefined {
         const arr = [];
         let newNode;
 
-        while (!this.stream.eos()) {
+        while (this.lexer.peek() !== TokenType.EOS) {
             // Search until something is found
             newNode = this.code();
             if (!newNode) newNode = this.text();
             if (!newNode) break;
 
-            if (isErrorNode(newNode)) {
-                this.errors.push(this.createError(newNode));
-            }
-            else {
-                arr.push(newNode);
-            }
+            arr.push(newNode);
         }
 
         // Nothing so force empty
         if (arr.length === 0)
-            return this.empty(new TextRange(this.stream.current.range.start, this.stream.current.range.end));
+            return;
         else if (arr.length === 1)
             return arr[0];
         else
@@ -268,33 +233,34 @@ export class Parser {
             );
     }
 
+    private whitespace() {
+        let type = this.lexer.peek();
+        while (type === TokenType.Space || type === TokenType.NewLine) {
+            type = this.lexer.advance();
+        }
+    }
+
     private getValue() {
         let subStr = "";
+        const start = this.createStartPostion();
 
-        const start = this.stream.current;
-        let last;
-
-        while (true) {
-            if (this.stream.match(TokenType.String)) {
-                subStr += this.getText(this.stream.current);
-                last = this.stream.consume(TokenType.String);
-            }
-            else if (this.stream.match(TokenType.Dot)) {
-                subStr += this.getText(this.stream.current);
-                last = this.stream.consume(TokenType.Dot);
-            }
-            else break;
+        let type = this.lexer.peek();
+        while (type === TokenType.Text || type === TokenType.Dot) {
+            subStr += this.lexer.getText();
+            type = this.lexer.advance();
         }
+
+        const end = this.createStartPostion();
 
         if (subStr.length > 0) {
             if (isNaN(+subStr))
                 return new StringNode(
-                    new TextRange(start.range.start, (last || start).range.end),
+                    new TextRange(start, end),
                     subStr
                 );
             else
                 return new NumberNode(
-                    new TextRange(start.range.start, (last || start).range.end),
+                    new TextRange(start, end),
                     +subStr
                 );
         }

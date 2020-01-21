@@ -1,4 +1,4 @@
-interface TextPosition {
+export interface TextPosition {
     line: number;
     col: number;
 }

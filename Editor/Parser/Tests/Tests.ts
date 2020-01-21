@@ -5,7 +5,7 @@ import { test } from "./Tester";
 test('Nothing',
     {
         text: '',
-        obj: { },
+        obj: {},
     },
     {
         result: '',
@@ -17,7 +17,7 @@ test('Nothing',
 test('String',
     {
         text: 'string',
-        obj: { },
+        obj: {},
     },
     {
         result: 'string',
@@ -29,11 +29,11 @@ test('String',
 test('Object',
     {
         text: '[test]',
-        obj: { test: { a: 'a'} },
+        obj: { test: { a: 'a' } },
     },
     {
         result: '',
-        code: 'test',
+        code: '',
         ranges: [new TextRange({ line: 0, col: 1 }, { line: 0, col: 5 })]
     }
 );
@@ -125,7 +125,7 @@ test('Function - Create',
 test('Function - Create + Args',
     {
         text: '[isRed 0]',
-        obj: { isRed: (args: any[]) => 'red' + args[0] },
+        obj: { isRed: (arg1: number) => 'red' + arg1 },
     },
     {
         result: 'red0',
@@ -137,7 +137,7 @@ test('Function - Create + Args',
 test('Function - Selector[0]',
     {
         text: '[isRed|red|blue]',
-        obj: { isRed: (args: any[], res: string[]) => ({ selector: 0 }) },
+        obj: { isRed: () => ({ selector: 0 }) },
     },
     {
         result: 'red',
@@ -149,7 +149,7 @@ test('Function - Selector[0]',
 test('Function - Selector[1]',
     {
         text: '[isRed|red|blue]',
-        obj: { isRed: (args: any[], res: string[]) => ({ selector: 1 }) },
+        obj: { isRed: () => ({ selector: 1 }) },
     },
     {
         result: 'blue',
@@ -161,7 +161,7 @@ test('Function - Selector[1]',
 test('Function - Match[0]',
     {
         text: '[color red|red|blue]',
-        obj: { color: (args: any[], res: string[]) => ({ selector: res.findIndex((r) => r === args[0]) }) },
+        obj: { color: (arg1: string, res1: string, res2: number) => ({ selector: arg1 === res1 ? 0 : 1 }) },
     },
     {
         result: 'red',
@@ -173,7 +173,7 @@ test('Function - Match[0]',
 test('Function - Match[1]',
     {
         text: '[color blue|red|blue]',
-        obj: { color: (args: any[], res: string[]) => ({ selector: res.findIndex((r) => r === args[0]) }) },
+        obj: { color: (arg1: string, res1: string, res2: number) => ({ selector: arg1 === res1 ? 0 : 1 }) },
     },
     {
         result: 'blue',
@@ -264,13 +264,15 @@ test('Code - Test',
     {
         text: '[name Thomas Justin Bert|THOMAS|JUSTIN|BERT|NOPE]',
         obj: {
-            name: (args: any[], res: string[]) => ({ selector: args.findIndex((n) => n == 'Thomas') }),
-            name__toCode: (args: string[], results: string[]) => {
-                const builder = new ConditionBuilder();
-                for (let idx = 0; idx < args.length; idx++)
-                    builder.if('name == ' + args[idx], results[idx]);
-                builder.else(results[results.length - 1]);
-                return builder.build();
+            name: (...args: string[]) => ({ selector: args.findIndex((n) => n == 'Thomas') }),
+            name__info: {
+                toCode: (args: string[], results: string[]) => {
+                    const builder = new ConditionBuilder();
+                    for (let idx = 0; idx < args.length; idx++)
+                        builder.if('name == ' + args[idx], results[idx]);
+                    builder.else(results[results.length - 1]);
+                    return builder.build();
+                }
             }
         },
     },
@@ -321,7 +323,7 @@ Cait's parked herself by the fire, sitting cross-legged with her eyes closed and
 Or maybe you're just overthinking things.
 ]`,
         obj: {
-            rand(args: any[], results: any[]) {
+            rand() {
                 return { selector: 1 };
             },
             flags: {
@@ -337,7 +339,7 @@ Cait's sitting by the fire, but looks up at you as you pass by the fire with a l
         ranges: [
             new TextRange({ line: 2, col: 1 }, { line: 3, col: 182 }),
             new TextRange({ line: 3, col: 201 }, { line: 3, col: 272 }),
-            new TextRange({ line: 3, col: 273 }, { line: 3, col: 279 })
+            new TextRange({ line: 3, col: 273 }, { line: 4, col: 0 })
         ]
     }
 );

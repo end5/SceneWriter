@@ -1,232 +1,140 @@
-import { StringStream } from './StringStream';
-import { TextRange } from './TextRange';
-import { Token, TokenType } from './Token';
-
-export interface LexerState {
-    codeStack: CodeState[];
-    beginNewline: boolean;
-    escaped: boolean;
-    text: string;
-    lineNum: number;
-    offset: number;
-    token: Token;
-}
-
-export function lex(text: string): Token[];
-export function lex(text: string, returnStates: boolean): LexerState[];
-export function lex(text: string, returnStates?: boolean): Token[] | LexerState[] {
-    const tokens: Token[] = [];
-    const states: LexerState[] = [];
-    const stream = new StringStream(text);
-    const state: LexerState = {
-        codeStack: [CodeState.Text],
-        beginNewline: false,
-        escaped: false,
-        text: '',
-        lineNum: 0,
-        offset: 0,
-        token: { type: TokenType.String, offset: 0, range: new TextRange() }
-    };
-
-    while (!stream.eos()) {
-        state.token = createToken(stream, state);
-
-        if (returnStates)
-            state.text = text.slice(state.token.range.start.col + state.offset, state.token.range.end.col + state.offset);
-
-        // Force the stream position forward if nothing matched
-        if (state.token.type === TokenType.Error && state.token.range.start.line === state.token.range.end.line && state.token.range.start.col === state.token.range.end.col)
-            stream.pos++;
-
-        tokens.push(state.token);
-
-        if (returnStates)
-            states.push(copyState(state));
-
-        if (state.token.type === TokenType.Newline) {
-            state.lineNum++;
-            state.offset = stream.pos;
-        }
-    }
-
-    if (returnStates)
-        return states;
-
-    return tokens;
-}
-
-function copyState(state: LexerState) {
-    const copy: LexerState = JSON.parse(JSON.stringify(state));
-    copy.token.range = new TextRange(copy.token.range.start, copy.token.range.end);
-    return copy;
-}
-
-function createToken(stream: StringStream, state: LexerState): Token {
-    const start = { line: state.lineNum, col: stream.pos - state.offset };
-    return {
-        type: tokenize(stream, state),
-        offset: state.offset,
-        range: new TextRange(start, { line: state.lineNum, col: stream.pos - state.offset })
-    };
-}
+import { TokenType } from "./Token";
 
 enum TokenSymbol {
-    Newline = '\n',
-    Escape = '\\',
-    BracketOpen = '[',
-    BracketClose = ']',
-    Pipe = '|',
-    QuestionMark = '?',
-    Dot = '.',
     Space = ' ',
     Tab = '\t',
+    Newline = '\n',
+    LeftBracket = '[',
+    RightBracket = ']',
+    Dot = '.',
+    Pipe = '|'
 }
 
-enum CodeState {
-    Text = 't',
-    CodeStart = '[',
-    Identity = 'i',
-    Arguments = 'a',
-    Results = 'r'
-}
+export class Lexer {
+    private pos: number = 0;
+    private start: number = 0;
+    private lineNum: number = 0;
+    private offset: number = 0;
+    private lastLine: number = 0;
+    private lastCol: number = 0;
+    private token?: TokenType;
+    public constructor(public readonly text: string) { }
 
-function tokenize(stream: StringStream, state: LexerState) {
-    if (state.escaped) {
-        state.escaped = false;
-        stream.pos++;
-        return TokenType.String;
-    }
-    if (state.beginNewline) {
-        state.beginNewline = false;
-        if (stream.eat(TokenSymbol.Space) || stream.eat(TokenSymbol.Tab)) {
-            while (stream.eat(TokenSymbol.Space) || stream.eat(TokenSymbol.Tab));
-            return TokenType.Space;
+    public get lineStart() { return this.lastLine; }
+    public get colStart() { return this.lastCol; }
+    public get lineEnd() { return this.lineNum; }
+    public get colEnd() { return this.pos - this.offset; }
+    /**
+     * Repeatedly eats characters that match the given characters. Returns true if any characters were eaten.
+     * @param chars Characters that match the string
+     */
+    private eatWhile(...chars: string[]): boolean {
+        const start = this.pos;
+        for (let idx = 0; idx < chars.length; idx++) {
+            if (this.text.charAt(this.pos) === chars[idx]) {
+                this.pos++;
+                idx = 0;
+            }
         }
+        return this.pos !== start;
     }
-    // Always - <...[... ...|...]...>
-    if (stream.eat(TokenSymbol.Newline)) {
-        state.beginNewline = true;
-        return TokenType.Newline;
+
+    /**
+     * Repeatedly eats characters that do not match the given characters. Returns true if any characters were eaten.
+     * @param notChars Characters that do not match the string
+     */
+    private eatWhileNot(...notChars: string[]): boolean {
+        const startPos = this.pos;
+        let index = startPos;
+        let matchFound = false;
+
+        for (const char of notChars) {
+            index = this.text.indexOf(char, startPos);
+
+            // Match was found
+            if (~index) {
+                matchFound = true;
+                // char found at start position
+                // cannnot progress
+                if (index === startPos) {
+                    this.pos = startPos;
+                    break;
+                }
+                // Match found at farther position
+                if (this.pos > index || this.pos === startPos)
+                    this.pos = index;
+            }
+        }
+
+        // Nothing matched so the rest of the string is ok
+        if (!matchFound)
+            this.pos = this.text.length;
+
+        return this.pos > startPos;
     }
-    else if (stream.eat(TokenSymbol.Escape)) {
-        if (stream.peek() === TokenSymbol.BracketOpen) {
-            state.escaped = true;
-            return TokenType.Escape;
-        }
-        return TokenType.Error;
+
+    public getText() {
+        return this.text.slice(this.start, this.pos);
     }
-    // Bracket Open - <...>[... ...|<...>]<...>
-    if (state.codeStack[0] === CodeState.Text || state.codeStack[0] === CodeState.Results) {
-        if (stream.eat(TokenSymbol.BracketOpen)) {
-            // Move state from (Text or Results) to CodeStart
-            state.codeStack.unshift(CodeState.CodeStart);
-            return TokenType.BracketOpen;
-        }
+
+    public peek(): TokenType {
+        if (!this.token)
+            this.token = this.advance();
+        return this.token;
     }
-    // Text - <...>[... ...|...]<...>
-    if (state.codeStack[0] === CodeState.Text) {
-        if (stream.eatWhileNot(
-            TokenSymbol.BracketOpen,
-            TokenSymbol.Newline,
-            TokenSymbol.Escape,
-        ))
-            return TokenType.String;
+
+    public advance(): TokenType {
+        this.start = this.pos;
+        this.lastLine = this.lineNum;
+        this.lastCol = this.pos - this.offset;
+
+        this.token = this.tokenize();
+        return this.token;
     }
-    // Start - ...[<>... ...|...]...
-    if (state.codeStack[0] === CodeState.CodeStart) {
-        if (stream.eat(TokenSymbol.Space) || stream.eat(TokenSymbol.Tab)) {
-            while (stream.eat(TokenSymbol.Space) || stream.eat(TokenSymbol.Tab));
-            return TokenType.Space;
-        }
-        // Move state from CodeStart to Identity
-        state.codeStack.unshift(CodeState.Identity);
-    }
-    // Identity - ...[<...> ...|...]...
-    if (state.codeStack[0] === CodeState.Identity) {
-        if (stream.eat(TokenSymbol.Space) || stream.eat(TokenSymbol.Tab)) {
-            while (stream.eat(TokenSymbol.Space) || stream.eat(TokenSymbol.Tab));
-            // Move state from Identity to Arguments
-            state.codeStack.unshift(CodeState.Arguments);
-            return TokenType.Space;
-        }
-        else if (stream.eat(TokenSymbol.Dot)) {
-            return TokenType.Dot;
-        }
-        // else if (stream.eat(TokenSymbol.QuestionMark)) {
-        //     return TokenType.QuestionMark;
-        // }
-        else if (stream.eat(TokenSymbol.Pipe)) {
-            // Move state from Identity to Results
-            state.codeStack.unshift(CodeState.Results);
-            return TokenType.Pipe;
-        }
-        else {
-            if (stream.eatWhileNot(
-                TokenSymbol.Space,
-                TokenSymbol.Tab,
-                TokenSymbol.Newline,
-                TokenSymbol.Dot,
-                // TokenSymbol.QuestionMark,
-                TokenSymbol.Pipe,
-                TokenSymbol.BracketClose,
-            )) {
-                return TokenType.Identity;
+
+    private tokenize(): TokenType {
+        if (this.pos >= this.text.length)
+            return TokenType.EOS;
+
+        switch (this.text.charAt(this.pos)) {
+            case TokenSymbol.Tab:
+            case TokenSymbol.Space: {
+                this.eatWhile(TokenSymbol.Space, TokenSymbol.Tab);
+                return TokenType.Space;
+            }
+            case TokenSymbol.Newline: {
+                this.lineNum++;
+                this.offset = ++this.pos;
+                return TokenType.NewLine;
+            }
+            case TokenSymbol.LeftBracket: {
+                this.pos++;
+                return TokenType.LeftBracket;
+            }
+            case TokenSymbol.RightBracket: {
+                this.pos++;
+                return TokenType.RightBracket;
+            }
+            case TokenSymbol.Dot: {
+                this.pos++;
+                return TokenType.Dot;
+            }
+            case TokenSymbol.Pipe: {
+                this.pos++;
+                return TokenType.Pipe;
+            }
+            default: {
+                this.eatWhileNot(
+                    TokenSymbol.Tab,
+                    TokenSymbol.Space,
+                    TokenSymbol.Newline,
+                    TokenSymbol.LeftBracket,
+                    TokenSymbol.RightBracket,
+                    TokenSymbol.Dot,
+                    TokenSymbol.Pipe
+                );
+                return TokenType.Text;
             }
         }
     }
-    // Bracket Close - ...[...< ...|...>]...
-    if (
-        state.codeStack[0] === CodeState.Identity ||
-        state.codeStack[0] === CodeState.Arguments ||
-        state.codeStack[0] === CodeState.Results
-    ) {
-        if (stream.eat(TokenSymbol.BracketClose)) {
-            // Move state from (Identity, Arguments or Results) to (Text or Results)
-            while (state.codeStack.length > 0 && (state.codeStack[0] !== CodeState.Text && state.codeStack[0] !== CodeState.Results))
-                state.codeStack.shift();
-            if (state.codeStack[0] !== CodeState.Text && state.codeStack[0] !== CodeState.Results)
-                return TokenType.Error;
-            return TokenType.BracketClose;
-        }
-    }
-    // Arguments - ...[... <...>|...]...
-    if (state.codeStack[0] === CodeState.Arguments) {
-        if (stream.eat(TokenSymbol.Space) || stream.eat(TokenSymbol.Tab)) {
-            while (stream.eat(TokenSymbol.Space) || stream.eat(TokenSymbol.Tab));
-            return TokenType.Space;
-        }
-        else if (stream.eat(TokenSymbol.Dot)) {
-            return TokenType.Dot;
-        }
-        else if (stream.eat(TokenSymbol.Pipe)) {
-            // Move state from Arguments to Results
-            state.codeStack.unshift(CodeState.Results);
-            return TokenType.Pipe;
-        }
-        else if (stream.eatWhileNot(
-            TokenSymbol.Space,
-            TokenSymbol.Tab,
-            TokenSymbol.Newline,
-            TokenSymbol.Dot,
-            TokenSymbol.Pipe,
-            TokenSymbol.BracketClose,
-        )) {
-            return TokenType.String;
-        }
-    }
-    // Results - ...[... ...|<...>]...
-    if (state.codeStack[0] === CodeState.Results) {
-        if (stream.eat(TokenSymbol.Pipe)) {
-            return TokenType.Pipe;
-        }
-        else if (stream.eatWhileNot(
-            TokenSymbol.BracketOpen,
-            TokenSymbol.BracketClose,
-            TokenSymbol.Pipe,
-            TokenSymbol.Newline,
-            TokenSymbol.Escape,
-        ))
-            return TokenType.String;
-    }
-    return TokenType.Error;
 }

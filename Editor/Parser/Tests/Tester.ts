@@ -1,8 +1,10 @@
 import chalk = require("chalk");
 import { Interpreter } from "../Interpreter";
-import { lex } from "../Lexer";
+import { Lexer } from "../Lexer";
+import { AllNodes } from "../Node";
 import { Parser } from "../Parser";
 import { TextRange } from "../TextRange";
+import { TokenType } from "../Token";
 
 export interface TestInput {
     text: string;
@@ -17,21 +19,15 @@ export interface TestOutput {
 
 export function test(name: string, input: TestInput, output: TestOutput) {
 
-    const lexResult = lex(input.text, true);
-
-    const parser = new Parser(lexResult.map((state) => state.token), input.text);
+    const lexer = new Lexer(input.text);
+    const parser = new Parser(input.text);
     const parserResult = parser.parse();
-    const interpreter = new Interpreter(parserResult.root, input.obj);
-    const interpretResult = interpreter.interpret();
+    const interpreter = new Interpreter();
+    const interpretResult = interpreter.interpret(parserResult.root, input.obj);
 
-    const results = typeof interpretResult === 'string' ?
-        {
-            text: false,
-            pos: false,
-            code: false,
-        } : {
+    const results = {
         text: interpretResult.result === output.result,
-            pos: (output.ranges.length === 0 && interpretResult.ranges.length === 0) || interpretResult.ranges.every((pos, idx) => compareTextRange(pos, output.ranges[idx])),
+        pos: (output.ranges.length === 0 && interpretResult.ranges.length === 0) || interpretResult.ranges.every((pos, idx) => compareTextRange(pos, output.ranges[idx])),
         code: interpretResult.code === output.code,
     };
 
@@ -47,35 +43,34 @@ export function test(name: string, input: TestInput, output: TestOutput) {
     log += ' did not match';
 
     log += '\n| -- Lexer';
-    for (const state of lexResult)
+    let token = lexer.peek();
+    while (token !== TokenType.EOS) {
         log += '\n| ' +
-            chalk.magenta(`[${state.lineNum}:${state.offset}]`) +
-            chalk.magenta(new TextRange(state.token.range.start, state.token.range.end) + '') + ' ' +
-            chalk.cyan(state.token.type) + ' ' +
-            chalk.yellow(`<${state.codeStack.reverse()}>`) + ' ' +
-            state.text;
-
-    if (typeof interpretResult === 'string') {
-        log += '\n| -- Result';
-        log += '\n| ' + interpretResult;
+            chalk.magenta(new TextRange({ line: lexer.lineStart, col: lexer.colStart }, { line: lexer.lineEnd, col: lexer.colEnd }) + '') + ' ' +
+            chalk.cyan(token) + ' ' +
+            lexer.getText();
+        token = lexer.advance();
     }
-    else {
+
+    log += '\n| -- Parser';
+    log += printNode(parserResult.root);
     log += '\n| -- Result';
     log += '\n| ' + interpretResult.result;
     log += '\n| -- Ranges';
     log += '\n| ' + interpretResult.ranges;
     log += '\n| -- Code';
     log += '\n| ' + interpretResult.code;
-    }
     log += '\n| -- Errors';
     for (const error of parserResult.errors)
         log += '\n| ' + chalk.magenta(error.range + '') + ' ' + chalk.red(error.msg);
-
-    // For debugging
-    // log += '\n| -- Stack';
-    // log += '\n| ' + JSON.stringify(interpretResult.stack);
+    for (const error of interpretResult.errors)
+        log += '\n| ' + chalk.magenta(error.range + '') + ' ' + chalk.red(error.msg);
 
     console.log(log);
+}
+
+function printNode(node: AllNodes, indent: number = 0): string {
+    return `\n| ${'  '.repeat(indent)}${node.range} ${node.type} ${node.value != null ? `"${node.value}"` : ''}${(node.children as AllNodes[]).map((child) => printNode(child, indent + 1)).join('')}`;
 }
 
 function compareTextRange(a: TextRange, b: TextRange) {

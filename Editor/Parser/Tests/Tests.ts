@@ -14,6 +14,30 @@ test('Nothing',
     }
 );
 
+test('Range',
+    {
+        text: '[num > 0 3|0~3|+3]',
+        obj: { num: 6 },
+    },
+    {
+        result: '+3',
+        code: '(0 <= num && num < 3 ? "0~3" : (3 <= num ? "+3" : ""))',
+        ranges: [new TextRange({ line: 0, col: 15 }, { line: 0, col: 17 })]
+    }
+);
+
+test('Equal',
+    {
+        text: '[num = 3|3|5]',
+        obj: { num: 6 },
+    },
+    {
+        result: '5',
+        code: '(num === 3 ? "3" : "5")',
+        ranges: [new TextRange({ line: 0, col: 11 }, { line: 0, col: 12 })]
+    }
+);
+
 test('String',
     {
         text: 'string',

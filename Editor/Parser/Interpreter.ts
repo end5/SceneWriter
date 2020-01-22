@@ -1,5 +1,5 @@
 import { LangError } from "./LangError";
-import { AllNodes, ArgsNode, ConcatNode, EvalNode, IdentityNode, NodeType, NumberNode, ResultsNode, RetrieveNode, StringNode, TextNodes } from "./Node";
+import { AllNodes, ArgsNode, ConcatNode, EvalNode, EvalOperator, IdentityNode, NodeType, NumberNode, ResultsNode, RetrieveNode, StringNode, TextNodes } from "./Node";
 import { Product } from "./Product";
 import { TextRange } from "./TextRange";
 
@@ -216,32 +216,39 @@ export class Interpreter {
             return new Product(node.range, '', '');
         }
 
-        const retrieveProduct = this.evalRetrieveNode(node.children[0]);
-        const argsProduct = this.evalArgsNode(node.children[1]);
-        const resultsProduct = this.evalResultsNode(node.children[2]);
+        switch (node.value) {
+            case EvalOperator.Range:
+                return this.evalRangeOp(node);
+            case EvalOperator.Equal:
+                return this.evalEqualOp(node);
+            default:
+                return this.evalDefaultOp(node);
+        }
 
-        const retrieveValue = retrieveProduct.value.value;
-        const retrieveSelf = retrieveProduct.value.self;
-        const retrieveInfo = retrieveProduct.value.info;
-        const retrieveCaps = retrieveProduct.value.caps;
-        const retrieveCode = retrieveProduct.code;
+    }
 
-        const argsValueArr = argsProduct.value.map((child) => child.value);
-        const argsCodeArr = argsProduct.value.map((child) => child.code);
+    private evalDefaultOp(node: EvalNode): Product<string> {
+        const retrieve = this.evalRetrieveNode(node.children[0]);
+        const args = this.evalArgsNode(node.children[1]);
+        const results = this.evalResultsNode(node.children[2]);
 
-        const resultsValueArr = resultsProduct.value.map((child) => child.value);
-        const resultsCodeArr = resultsProduct.value.map((child) => child.code);
+        const argsValueArr = args.value.map((child) => child.value);
+        const argsCodeArr = args.value.map((child) => child.code);
+
+        const resultsValueArr = results.value.map((child) => child.value);
+        const resultsCodeArr = results.value.map((child) => child.code);
 
         // Error checking
-        if (typeof retrieveValue === 'function' && retrieveInfo) {
-            if (retrieveInfo.argResultValidator) {
-                const validResult = retrieveInfo.argResultValidator(argsValueArr, resultsValueArr);
+        let errorMsg;
+        if (typeof retrieve.value.value === 'function' && retrieve.value.info) {
+            if (retrieve.value.info.argResultValidator) {
+                const validResult = retrieve.value.info.argResultValidator(argsValueArr, resultsValueArr);
                 if (validResult != null) {
                     errorMsg = '"' + this.getName(node.children[0]) + '" ' + validResult;
                 }
             }
         }
-        else if (typeof retrieveValue === 'boolean') {
+        else if (typeof retrieve.value.value === 'boolean') {
             if (resultsValueArr.length == 0) {
                 errorMsg = this.getName(node.children[0]) + ' needs at least 1 result';
             }
@@ -249,82 +256,231 @@ export class Interpreter {
                 errorMsg = this.getName(node.children[0]) + ' can have up to 2 results';
             }
         }
-        else if (typeof retrieveValue === 'object' || retrieveValue == null) {
+        else if (typeof retrieve.value.value === 'object' || retrieve.value.value == null) {
             errorMsg = this.getName(node.children[0]) + ' cannot be displayed';
         }
         if (errorMsg) {
             this.createError(node.range, errorMsg);
+            return new Product(node.range, '', '');
         }
 
         let returnValue = '';
         let returnRange: TextRange | TextRange[] = node.range;
         let returnCode = '';
-        if (!errorMsg) {
-            if (typeof retrieveValue === 'function') {
-                const funcResult = retrieveValue.apply(retrieveSelf, argsValueArr.concat(resultsValueArr));
-                // Handle selecting from results here
-                if (typeof funcResult === 'object' && 'selector' in funcResult && resultsProduct.value[funcResult.selector]) {
-                    returnValue = resultsProduct.value[funcResult.selector].value;
-                    returnRange = resultsProduct.value[funcResult.selector].range;
-                }
-                else {
-                    returnValue = funcResult + '';
-                    returnRange = node.range;
-                }
-
-                // nothing              -> identity()
-                // args + results       -> identity([arg0, arg1, ...], [result0, result1, ...])
-                // args                 -> identity(arg0, arg1, ...)
-                // results              -> identity(result0, result1, ...)
-                if (argsCodeArr.length === 0 && resultsCodeArr.length === 0)
-                    returnCode = retrieveCode + '()';
-                else if (argsCodeArr.length > 0 && resultsCodeArr.length > 0)
-                    returnCode = retrieveCode + '([' + argsCodeArr.join(', ') + '], [' + resultsCodeArr.join(', ') + '])';
-                else if (argsCodeArr.length > 0)
-                    returnCode = retrieveCode + '(' + argsCodeArr.join(', ') + ')';
-                else
-                    returnCode = retrieveCode + '(' + resultsCodeArr.join(', ') + ')';
-            }
-            else if (typeof retrieveValue === 'boolean') {
-                // condition ? [result1] : result2
-                if (retrieveValue && resultsProduct.value.length > 0 && resultsProduct.value[0]) {
-                    returnValue = resultsProduct.value[0].value;
-                    returnRange = resultsProduct.value[0].range;
-                }
-                // condition ? result1 : [result2]
-                else if (!retrieveValue && resultsProduct.value.length > 1 && resultsProduct.value[1]) {
-                    returnValue = resultsProduct.value[1].value;
-                    returnRange = resultsProduct.value[1].range;
-                }
-                // condition ? result1 : []
-                // condition ? [] : result2
-                else {
-                    returnValue = '';
-                    returnRange = node.range;
-                }
-
-                // type bool + results  -> identity ? result0 : (result1 or "")
-                if (resultsCodeArr.length === 1)
-                    returnCode = '(' + retrieveCode + ' ? ' + resultsCodeArr[0] + ' : "")';
-                if (resultsCodeArr.length === 2)
-                    returnCode = '(' + retrieveCode + ' ? ' + resultsCodeArr[0] + ' : ' + resultsCodeArr[1] + ')';
+        if (typeof retrieve.value.value === 'function') {
+            const funcResult = retrieve.value.value.apply(retrieve.value.self, argsValueArr.concat(resultsValueArr));
+            // Handle selecting from results here
+            if (typeof funcResult === 'object' && 'selector' in funcResult && results.value[funcResult.selector]) {
+                returnValue = results.value[funcResult.selector].value;
+                returnRange = results.value[funcResult.selector].range;
             }
             else {
-                returnValue = retrieveValue + '';
+                returnValue = funcResult + '';
                 returnRange = node.range;
-                returnCode = retrieveCode;
             }
 
-            if (retrieveInfo && retrieveInfo.toCode) {
-                returnCode = retrieveInfo.toCode(argsCodeArr, resultsCodeArr);
+            // nothing              -> identity()
+            // args + results       -> identity([arg0, arg1, ...], [result0, result1, ...])
+            // args                 -> identity(arg0, arg1, ...)
+            // results              -> identity(result0, result1, ...)
+            if (argsCodeArr.length === 0 && resultsCodeArr.length === 0)
+                returnCode = retrieve.code + '()';
+            else if (argsCodeArr.length > 0 && resultsCodeArr.length > 0)
+                returnCode = retrieve.code + '([' + argsCodeArr.join(', ') + '], [' + resultsCodeArr.join(', ') + '])';
+            else if (argsCodeArr.length > 0)
+                returnCode = retrieve.code + '(' + argsCodeArr.join(', ') + ')';
+            else
+                returnCode = retrieve.code + '(' + resultsCodeArr.join(', ') + ')';
+        }
+        else if (typeof retrieve.value.value === 'boolean') {
+            // condition ? [result1] : result2
+            if (retrieve.value.value && results.value.length > 0 && results.value[0]) {
+                returnValue = results.value[0].value;
+                returnRange = results.value[0].range;
+            }
+            // condition ? result1 : [result2]
+            else if (!retrieve.value.value && results.value.length > 1 && results.value[1]) {
+                returnValue = results.value[1].value;
+                returnRange = results.value[1].range;
+            }
+            // condition ? result1 : []
+            // condition ? [] : result2
+            else {
+                returnValue = '';
+                returnRange = node.range;
             }
 
+            // type bool + results  -> identity ? result0 : (result1 or "")
+            if (resultsCodeArr.length === 1)
+                returnCode = '(' + retrieve.code + ' ? ' + resultsCodeArr[0] + ' : "")';
+            if (resultsCodeArr.length === 2)
+                returnCode = '(' + retrieve.code + ' ? ' + resultsCodeArr[0] + ' : ' + resultsCodeArr[1] + ')';
+        }
+        else {
+            returnValue = retrieve.value.value + '';
+            returnRange = node.range;
+            returnCode = retrieve.code;
         }
 
-        if (retrieveCaps && returnValue.length > 0) {
+        if (retrieve.value.info && retrieve.value.info.toCode) {
+            returnCode = retrieve.value.info.toCode(argsCodeArr, resultsCodeArr);
+        }
+
+        if (retrieve.value.caps && returnValue.length > 0) {
             returnValue = returnValue.charAt(0).toLocaleUpperCase() + returnValue.slice(1);
         }
 
         return new Product(returnRange, returnValue + '', returnCode);
     }
+
+    private evalRangeOp(node: EvalNode): Product<string> {
+        const retrieve = this.evalRetrieveNode(node.children[0]);
+        const args = this.evalArgsNode(node.children[1]);
+        const results = this.evalResultsNode(node.children[2]);
+
+        const argsValueArr = args.value.map((child) => child.value);
+        const argsCodeArr = args.value.map((child) => child.code);
+
+        const resultsValueArr = results.value.map((child) => child.value);
+        const resultsCodeArr = results.value.map((child) => child.code);
+
+        // Error checking
+        let errorMsg;
+        if (typeof retrieve.value.value === 'number') {
+            if (argsValueArr.length === 0) {
+                errorMsg = this.getName(node.children[0]) + ' needs at least one argument';
+            }
+            else if (resultsValueArr.length === 0) {
+                errorMsg = this.getName(node.children[0]) + ' needs at least one result';
+            }
+            else if (resultsValueArr.length > argsValueArr.length + 1) {
+                errorMsg = this.getName(node.children[0]) + ' has ' + (resultsValueArr.length - argsValueArr.length + 1) + ' extraneous results';
+            }
+        }
+        else {
+            errorMsg = this.getName(node.children[0]) + ' does not support ">"';
+        }
+        if (errorMsg) {
+            this.createError(node.range, errorMsg);
+            return new Product(node.range, '', '');
+        }
+
+        let returnValue = '';
+        let returnRange: TextRange | TextRange[] = node.range;
+        let returnCode = '';
+        if (typeof retrieve.value.value === 'number') {
+            for (let idx = 0; idx < argsValueArr.length && idx < resultsValueArr.length; idx++) {
+                if (argsValueArr[idx] <= retrieve.value.value && (
+                    idx === argsValueArr.length - 1 ||
+                    retrieve.value.value < argsValueArr[idx + 1]
+                )) {
+                    returnValue = results.value[idx].value;
+                    returnRange = results.value[idx].range;
+                    break;
+                }
+            }
+            for (let idx = 0; idx < argsValueArr.length; idx++) {
+                returnCode += '(' + argsCodeArr[idx] + ' <= ' + retrieve.code;
+                if (idx + 1 < argsValueArr.length) {
+                    returnCode += ' && ' + retrieve.code + ' < ' + argsCodeArr[idx + 1];
+                }
+                returnCode += ' ? ';
+                if (idx < resultsCodeArr.length)
+                    returnCode += resultsCodeArr[idx];
+                else
+                    returnCode += '""';
+                returnCode += ' : ';
+                if (idx + 1 === argsValueArr.length)
+                    returnCode += '""';
+            }
+            returnCode += ')'.repeat(argsValueArr.length);
+        }
+        else {
+            returnValue = retrieve.value.value + '';
+            returnRange = node.range;
+            returnCode = retrieve.code;
+        }
+
+        if (retrieve.value.info && retrieve.value.info.toCode) {
+            returnCode = retrieve.value.info.toCode(argsCodeArr, resultsCodeArr);
+        }
+
+        return new Product(returnRange, returnValue + '', returnCode);
+    }
+
+    private evalEqualOp(node: EvalNode): Product<string> {
+        const retrieve = this.evalRetrieveNode(node.children[0]);
+        const args = this.evalArgsNode(node.children[1]);
+        const results = this.evalResultsNode(node.children[2]);
+
+        const argsValueArr = args.value.map((child) => child.value);
+        const argsCodeArr = args.value.map((child) => child.code);
+
+        const resultsValueArr = results.value.map((child) => child.value);
+        const resultsCodeArr = results.value.map((child) => child.code);
+
+        // Error checking
+        let errorMsg;
+        if (args.value.length !== 1) {
+            errorMsg = this.getName(node.children[0]) + ' can only accept 1 argument';
+        }
+        else if (resultsValueArr.length == 0) {
+            errorMsg = this.getName(node.children[0]) + ' needs at least 1 result';
+        }
+        else if (resultsValueArr.length > 2) {
+            errorMsg = this.getName(node.children[0]) + ' can have up to 2 results';
+        }
+        else if (
+            typeof retrieve.value.value !== 'boolean' &&
+            typeof retrieve.value.value !== 'number' &&
+            typeof retrieve.value.value !== 'string'
+        ) {
+            errorMsg = this.getName(node.children[0]) + ' does not support "="';
+        }
+        if (errorMsg) {
+            this.createError(node.range, errorMsg);
+            return new Product(node.range, '', '');
+        }
+
+        let arg: string | number | boolean = args.value[0].value;
+        if (arg === 'true') arg = true;
+        if (arg === 'false') arg = false;
+
+        let returnValue = '';
+        let returnRange: TextRange | TextRange[] = node.range;
+        let returnCode = '';
+        // condition ? [result1] : result2
+        if (retrieve.value.value === arg && results.value.length > 0 && results.value[0]) {
+            returnValue = results.value[0].value;
+            returnRange = results.value[0].range;
+        }
+        // condition ? result1 : [result2]
+        else if (retrieve.value.value !== arg && results.value.length > 1 && results.value[1]) {
+            returnValue = results.value[1].value;
+            returnRange = results.value[1].range;
+        }
+        // condition ? result1 : []
+        // condition ? [] : result2
+        else {
+            returnValue = '';
+            returnRange = node.range;
+        }
+
+        // type bool + results  -> identity ? result0 : (result1 or "")
+        if (resultsCodeArr.length === 1)
+            returnCode = '(' + retrieve.code + ' === ' + argsCodeArr[0] + ' ? ' + resultsCodeArr[0] + ' : "")';
+        if (resultsCodeArr.length === 2)
+            returnCode = '(' + retrieve.code + ' === ' + argsCodeArr[0] + ' ? ' + resultsCodeArr[0] + ' : ' + resultsCodeArr[1] + ')';
+
+        if (retrieve.value.info && retrieve.value.info.toCode) {
+            returnCode = retrieve.value.info.toCode(argsCodeArr, resultsCodeArr);
+        }
+
+        if (retrieve.value.caps && returnValue.length > 0) {
+            returnValue = returnValue.charAt(0).toLocaleUpperCase() + returnValue.slice(1);
+        }
+
+        return new Product(returnRange, returnValue + '', returnCode);
+    }
+
 }

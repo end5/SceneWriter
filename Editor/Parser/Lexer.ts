@@ -7,7 +7,9 @@ enum TokenSymbol {
     LeftBracket = '[',
     RightBracket = ']',
     Dot = '.',
-    Pipe = '|'
+    Pipe = '|',
+    GreaterThan = '>',
+    Equal = '='
 }
 
 export class Lexer {
@@ -123,6 +125,14 @@ export class Lexer {
                 this.pos++;
                 return TokenType.Pipe;
             }
+            case TokenSymbol.GreaterThan: {
+                this.pos++;
+                return TokenType.GreaterThan;
+            }
+            case TokenSymbol.Equal: {
+                this.pos++;
+                return TokenType.Equal;
+            }
             default: {
                 this.eatWhileNot(
                     TokenSymbol.Tab,
@@ -131,7 +141,9 @@ export class Lexer {
                     TokenSymbol.LeftBracket,
                     TokenSymbol.RightBracket,
                     TokenSymbol.Dot,
-                    TokenSymbol.Pipe
+                    TokenSymbol.Pipe,
+                    TokenSymbol.GreaterThan,
+                    TokenSymbol.Equal
                 );
                 return TokenType.Text;
             }

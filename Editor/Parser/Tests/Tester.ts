@@ -1,10 +1,10 @@
 import chalk = require("chalk");
 import { Interpreter } from "../Interpreter";
 import { Lexer } from "../Lexer";
-import { AllNodes } from "../Node";
+import { AllNodes, NodeTypeNames } from "../Node";
 import { Parser } from "../Parser";
 import { TextRange } from "../TextRange";
-import { TokenType } from "../Token";
+import { TokenType, TokenTypeNames } from "../Token";
 
 export interface TestInput {
     text: string;
@@ -20,8 +20,8 @@ export interface TestOutput {
 export function test(name: string, input: TestInput, output: TestOutput) {
 
     const lexer = new Lexer(input.text);
-    const parser = new Parser(input.text);
-    const parserResult = parser.parse();
+    const parser = new Parser();
+    const parserResult = parser.parse(input.text);
     const interpreter = new Interpreter();
     const interpretResult = interpreter.interpret(parserResult.root, input.obj);
 
@@ -47,7 +47,7 @@ export function test(name: string, input: TestInput, output: TestOutput) {
     while (token !== TokenType.EOS) {
         log += '\n| ' +
             chalk.magenta(new TextRange({ line: lexer.lineStart, col: lexer.colStart }, { line: lexer.lineEnd, col: lexer.colEnd }) + '') + ' ' +
-            chalk.cyan(token) + ' ' +
+            chalk.cyan(TokenTypeNames[token]) + ' ' +
             lexer.getText();
         token = lexer.advance();
     }
@@ -70,7 +70,7 @@ export function test(name: string, input: TestInput, output: TestOutput) {
 }
 
 function printNode(node: AllNodes, indent: number = 0): string {
-    return `\n| ${'  '.repeat(indent)}${node.range} ${node.type} ${node.value != null ? `"${node.value}"` : ''}${(node.children as AllNodes[]).map((child) => printNode(child, indent + 1)).join('')}`;
+    return `\n| ${'  '.repeat(indent)}${node.range} ${NodeTypeNames[node.type]} ${node.value != null ? `"${node.value}"` : ''}${(node.children as AllNodes[]).map((child) => printNode(child, indent + 1)).join('')}`;
 }
 
 function compareTextRange(a: TextRange, b: TextRange) {

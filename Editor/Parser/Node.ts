@@ -1,15 +1,17 @@
 import { TextRange } from "./TextRange";
 
 export enum NodeType {
-    Identity = 'identity',
-    String = 'string',
-    Number = 'number',
-    Concat = 'concat',
-    Eval = 'eval',
-    Retrieve = 'retrieve',
-    Args = 'args',
-    Results = 'results'
+    Identity = 0,
+    String = 1,
+    Number = 2,
+    Concat = 3,
+    Eval = 4,
+    Retrieve = 5,
+    Args = 6,
+    Results = 7
 }
+
+export const NodeTypeNames = ['Identifier', 'String', 'Number', 'Concat', 'Eval', 'Retrieve', 'Args', 'Results'];
 
 export class Node<T extends NodeType, C, V> {
     public constructor(
@@ -30,9 +32,15 @@ export class ConcatNode extends Node<NodeType.Concat, TextNodes[], undefined> {
     }
 }
 
-export class EvalNode extends Node<NodeType.Eval, [RetrieveNode, ArgsNode, ResultsNode], undefined> {
-    public constructor(range: TextRange, children: [RetrieveNode, ArgsNode, ResultsNode]) {
-        super(NodeType.Eval, range, children, undefined);
+export enum EvalOperator {
+    Default = 0,
+    Range = 1,
+    Equal = 2
+}
+
+export class EvalNode extends Node<NodeType.Eval, [RetrieveNode, ArgsNode, ResultsNode], EvalOperator> {
+    public constructor(range: TextRange, children: [RetrieveNode, ArgsNode, ResultsNode], operator: EvalOperator = EvalOperator.Default) {
+        super(NodeType.Eval, range, children, operator);
     }
 }
 

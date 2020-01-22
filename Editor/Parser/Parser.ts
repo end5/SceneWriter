@@ -1,6 +1,6 @@
 import { LangError } from "./LangError";
 import { Lexer } from "./Lexer";
-import { ArgsNode, ConcatNode, EvalNode, IdentityNode, NumberNode, ResultsNode, RetrieveNode, StringNode, TextNodes } from "./Node";
+import { ArgsNode, ConcatNode, EvalNode, EvalOperator, IdentityNode, NodeType, NumberNode, ResultsNode, RetrieveNode, StringNode, TextNodes } from "./Node";
 import { TextPosition, TextRange } from "./TextRange";
 import { TokenType } from "./Token";
 
@@ -10,14 +10,12 @@ export interface ParserResult {
 }
 
 export class Parser {
-    private lexer: Lexer;
+    private lexer: Lexer = new Lexer('');
     private errors: LangError[] = [];
 
-    public constructor(text: string) {
+    public parse(text: string): ParserResult {
         this.lexer = new Lexer(text);
-    }
-
-    public parse(): ParserResult {
+        this.errors = [];
         return { root: this.concat(), errors: this.errors };
     }
 
@@ -74,7 +72,12 @@ export class Parser {
         const start = this.createStartPostion();
         let subText = '';
         let type = this.lexer.peek();
-        while (type === TokenType.Space || type === TokenType.NewLine || type === TokenType.Text || type === TokenType.Dot) {
+        while (
+            type !== TokenType.EOS &&
+            type !== TokenType.LeftBracket &&
+            type !== TokenType.RightBracket &&
+            type !== TokenType.Pipe
+        ) {
             subText += this.lexer.getText();
             type = this.lexer.advance();
         }
@@ -110,6 +113,20 @@ export class Parser {
         const identityNode = this.retrieve();
         if (!identityNode) return;
 
+        let evalOp = EvalOperator.Default;
+        if (this.lexer.peek() === TokenType.Space)
+            this.lexer.advance();
+
+        if (this.lexer.peek() === TokenType.GreaterThan) {
+            evalOp = EvalOperator.Range;
+            this.lexer.advance();
+        }
+
+        if (this.lexer.peek() === TokenType.Equal) {
+            evalOp = EvalOperator.Equal;
+            this.lexer.advance();
+        }
+
         const argNodes = this.arguments();
         const resultNodes = this.results();
 
@@ -123,7 +140,8 @@ export class Parser {
 
         return new EvalNode(
             new TextRange(identityNode.range.start, rangeEnd),
-            [identityNode, argNodes, resultNodes]
+            [identityNode, argNodes, resultNodes],
+            evalOp
         );
     }
 
@@ -168,7 +186,9 @@ export class Parser {
         const start = this.createStartPostion();
 
         // Add Value nodes to Args node
-        let valueNode;
+        let valueNode = this.getValue();
+        if (valueNode) arr.push(valueNode);
+
         while (this.lexer.peek() === TokenType.Space) {
             this.lexer.advance();
 
@@ -245,7 +265,12 @@ export class Parser {
         const start = this.createStartPostion();
 
         let type = this.lexer.peek();
-        while (type === TokenType.Text || type === TokenType.Dot) {
+        while (
+            type === TokenType.Text ||
+            type === TokenType.Dot ||
+            type === TokenType.GreaterThan ||
+            type === TokenType.Equal
+        ) {
             subStr += this.lexer.getText();
             type = this.lexer.advance();
         }

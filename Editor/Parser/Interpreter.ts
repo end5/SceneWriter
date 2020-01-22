@@ -148,7 +148,7 @@ export class Interpreter {
             if (typeof obj !== 'object' || !(identity in obj)) {
                 this.createError(
                     node.range,
-                    `"${node.value}" does not exist${name ? ` in "${name}"` : ''}`
+                    `"${identity}" does not exist${name ? ` in "${name}"` : ''}`
                 );
                 return new Product<RetrieveObj>(
                     node.range,

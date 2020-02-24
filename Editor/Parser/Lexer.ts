@@ -8,8 +8,8 @@ enum TokenSymbol {
     RightBracket = ']',
     Dot = '.',
     Pipe = '|',
-    GreaterThan = '>',
-    Equal = '='
+    LeftParen = '(',
+    RightParen = ')'
 }
 
 export class Lexer {
@@ -22,6 +22,8 @@ export class Lexer {
     private token?: TokenType;
     public constructor(public readonly text: string) { }
 
+    public get offsetStart() { return this.start; }
+    public get offsetEnd() { return this.pos; }
     public get lineStart() { return this.lastLine; }
     public get colStart() { return this.lastCol; }
     public get lineEnd() { return this.lineNum; }
@@ -32,8 +34,11 @@ export class Lexer {
      */
     private eatWhile(...chars: string[]): boolean {
         const start = this.pos;
-        for (let idx = 0; idx < chars.length; idx++) {
-            if (this.text.charAt(this.pos) === chars[idx]) {
+        let idx = 0;
+        while (idx < chars.length) {
+            if (this.text.charAt(this.pos) !== chars[idx])
+                idx++;
+            else {
                 this.pos++;
                 idx = 0;
             }
@@ -125,13 +130,13 @@ export class Lexer {
                 this.pos++;
                 return TokenType.Pipe;
             }
-            case TokenSymbol.GreaterThan: {
+            case TokenSymbol.LeftParen: {
                 this.pos++;
-                return TokenType.GreaterThan;
+                return TokenType.LeftParen;
             }
-            case TokenSymbol.Equal: {
+            case TokenSymbol.RightParen: {
                 this.pos++;
-                return TokenType.Equal;
+                return TokenType.RightParen;
             }
             default: {
                 this.eatWhileNot(
@@ -142,8 +147,8 @@ export class Lexer {
                     TokenSymbol.RightBracket,
                     TokenSymbol.Dot,
                     TokenSymbol.Pipe,
-                    TokenSymbol.GreaterThan,
-                    TokenSymbol.Equal
+                    TokenSymbol.LeftParen,
+                    TokenSymbol.RightParen
                 );
                 return TokenType.Text;
             }

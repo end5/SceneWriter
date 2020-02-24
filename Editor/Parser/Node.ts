@@ -32,15 +32,9 @@ export class ConcatNode extends Node<NodeType.Concat, TextNodes[], undefined> {
     }
 }
 
-export enum EvalOperator {
-    Default = 0,
-    Range = 1,
-    Equal = 2
-}
-
-export class EvalNode extends Node<NodeType.Eval, [RetrieveNode, ArgsNode, ResultsNode], EvalOperator> {
-    public constructor(range: TextRange, children: [RetrieveNode, ArgsNode, ResultsNode], operator: EvalOperator = EvalOperator.Default) {
-        super(NodeType.Eval, range, children, operator);
+export class EvalNode extends Node<NodeType.Eval, [RetrieveNode, ArgsNode, ResultsNode], undefined> {
+    public constructor(range: TextRange, children: [RetrieveNode, ArgsNode, ResultsNode]) {
+        super(NodeType.Eval, range, children, undefined);
     }
 }
 

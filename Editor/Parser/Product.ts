@@ -1,8 +1,8 @@
 import { TextRange } from "./TextRange";
 
-export class Product<V> {
+export class Product<V, R extends TextRange | TextRange[]> {
     public constructor(
-        public readonly range: TextRange | TextRange[],
+        public readonly range: R,
         public value: V,
         public code: string,
     ) { }

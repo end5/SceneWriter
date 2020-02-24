@@ -7,8 +7,8 @@ export enum TokenType {
     RightBracket = 5,
     Dot = 6,
     Pipe = 7,
-    GreaterThan = 8,
-    Equal = 9,
+    LeftParen = 8,
+    RightParen = 9,
 }
 
-export const TokenTypeNames = ['EOS', 'Text', 'Space', 'Newline', 'LeftBracket', 'RightBracket', 'Dot', 'Pipe', 'GreaterThan', 'Equal'];
+export const TokenTypeNames = ['EOS', 'Text', 'Space', 'Newline', 'LeftBracket', 'RightBracket', 'Dot', 'Pipe', 'LeftParen', 'RightParen'];

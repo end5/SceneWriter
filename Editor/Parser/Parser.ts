@@ -1,6 +1,6 @@
 import { LangError } from "./LangError";
 import { Lexer } from "./Lexer";
-import { ArgsNode, ConcatNode, EvalNode, EvalOperator, IdentityNode, NodeType, NumberNode, ResultsNode, RetrieveNode, StringNode, TextNodes } from "./Node";
+import { ArgsNode, ConcatNode, EvalNode, IdentityNode, NumberNode, ResultsNode, RetrieveNode, StringNode, TextNodes } from "./Node";
 import { TextPosition, TextRange } from "./TextRange";
 import { TokenType } from "./Token";
 
@@ -19,14 +19,6 @@ export class Parser {
         return { root: this.concat(), errors: this.errors };
     }
 
-    /**
-     * A ConcatNode with one blank StringNode with specified range
-     * @param range
-     */
-    private empty() {
-        return new StringNode(this.createRange(), '');
-    }
-
     private createStartPostion(): TextPosition {
         return { line: this.lexer.lineStart, col: this.lexer.colStart };
     }
@@ -40,25 +32,29 @@ export class Parser {
     }
 
     private createError(msg: string, range?: TextRange) {
-        this.errors.push(new LangError(range || this.createRange(), msg));
+        this.errors.push(new LangError(msg, range || this.createRange()));
     }
 
     private concat() {
         let newNode;
         const arr = [];
+        let start = this.lexer.offsetEnd;
 
         while (this.lexer.peek() !== TokenType.EOS) {
             // Search until something is found
             newNode = this.code();
             if (!newNode) newNode = this.text();
-            if (!newNode) break;
+            if (!newNode && start === this.lexer.offsetEnd)
+                this.lexer.advance();
 
-            arr.push(newNode);
+            start = this.lexer.offsetEnd;
+            if (newNode)
+                arr.push(newNode);
         }
 
         // Nothing so force empty
         if (arr.length === 0)
-            return this.empty();
+            return new StringNode(new TextRange(), '');
         else if (arr.length === 1)
             return arr[0];
         else
@@ -82,9 +78,9 @@ export class Parser {
             type = this.lexer.advance();
         }
         if (subText.length === 0) return;
-        const end = this.createStartPostion();
+
         return new StringNode(
-            new TextRange(start, end),
+            new TextRange(start, this.createStartPostion()),
             subText
         );
     }
@@ -96,7 +92,8 @@ export class Parser {
         this.lexer.advance();
 
         const codeNode = this.eval();
-        if (!codeNode) return;
+
+        this.whitespace();
 
         // don't advance token stream on error
         if (this.lexer.peek() !== TokenType.RightBracket) {
@@ -104,28 +101,17 @@ export class Parser {
             return;
         }
 
-        this.lexer.advance();
+        if (codeNode)
+            this.lexer.advance();
 
         return codeNode;
     }
 
     private eval() {
+        this.whitespace();
+
         const identityNode = this.retrieve();
         if (!identityNode) return;
-
-        let evalOp = EvalOperator.Default;
-        if (this.lexer.peek() === TokenType.Space)
-            this.lexer.advance();
-
-        if (this.lexer.peek() === TokenType.GreaterThan) {
-            evalOp = EvalOperator.Range;
-            this.lexer.advance();
-        }
-
-        if (this.lexer.peek() === TokenType.Equal) {
-            evalOp = EvalOperator.Equal;
-            this.lexer.advance();
-        }
 
         const argNodes = this.arguments();
         const resultNodes = this.results();
@@ -140,8 +126,7 @@ export class Parser {
 
         return new EvalNode(
             new TextRange(identityNode.range.start, rangeEnd),
-            [identityNode, argNodes, resultNodes],
-            evalOp
+            [identityNode, argNodes, resultNodes]
         );
     }
 
@@ -161,11 +146,12 @@ export class Parser {
 
         this.lexer.advance();
 
+        let dotRange = this.createRange();
         while (this.lexer.peek() === TokenType.Dot) {
             this.lexer.advance();
 
             if (this.lexer.peek() !== TokenType.Text) {
-                this.createError(`Missing Identifier`);
+                this.createError(`Missing Identifier`, dotRange);
                 return;
             }
 
@@ -174,6 +160,8 @@ export class Parser {
             );
 
             this.lexer.advance();
+
+            dotRange = this.createRange();
 
             rootNode.range.end = rootNode.children[rootNode.children.length - 1].range.end;
         }
@@ -210,13 +198,29 @@ export class Parser {
         const arr = [];
         const start = this.createStartPostion();
 
+        // Indentation
+        let indent = 0;
+        while (this.lexer.peek() === TokenType.NewLine) {
+            // In case of multiple newlines before pipe
+            indent = 0;
+            this.lexer.advance();
+            while (this.lexer.peek() === TokenType.Space) {
+                indent += this.lexer.getText().length;
+                this.lexer.advance();
+            }
+        }
+
         // Consume Pipe then ResultConcat
         let node;
         while (this.lexer.peek() === TokenType.Pipe) {
             this.lexer.advance();
 
-            node = this.resultConcat();
-            if (!node) break;
+            node = this.resultConcat(indent);
+            if (!node)
+                if (this.lexer.peek() === TokenType.Pipe || this.lexer.peek() === TokenType.RightBracket)
+                    node = new StringNode(new TextRange(this.createStartPostion(), this.createStartPostion()), '');
+                else
+                    break;
 
             arr.push(node);
         }
@@ -228,14 +232,14 @@ export class Parser {
         return new ResultsNode(new TextRange(start, end), arr);
     }
 
-    private resultConcat(): TextNodes | undefined {
+    private resultConcat(indent: number): TextNodes | undefined {
         const arr = [];
         let newNode;
 
         while (this.lexer.peek() !== TokenType.EOS) {
             // Search until something is found
-            newNode = this.code();
-            if (!newNode) newNode = this.text();
+            newNode = this.resultText(indent);
+            if (!newNode) newNode = this.code();
             if (!newNode) break;
 
             arr.push(newNode);
@@ -253,6 +257,53 @@ export class Parser {
             );
     }
 
+    private resultText(indent: number) {
+        const start = this.createStartPostion();
+        let subText = '';
+        let newlines = '';
+        let type = this.lexer.peek();
+
+        infiniteLoop: while (true) {
+            switch (type) {
+                case TokenType.LeftBracket:
+                    // whitespace before [
+                    subText += newlines;
+
+                case TokenType.EOS:
+                case TokenType.RightBracket:
+                case TokenType.Pipe:
+                    break infiniteLoop;
+
+                case TokenType.NewLine:
+                    newlines += this.lexer.getText();
+                    type = this.lexer.advance();
+
+                    let indentText = '';
+                    while (this.lexer.peek() === TokenType.Space) {
+                        indentText += this.lexer.getText();
+                        type = this.lexer.advance();
+                    }
+
+                    if (indentText.length >= indent)
+                        newlines += indentText.substr(indent);
+                    break;
+
+                default:
+                    subText += newlines + this.lexer.getText();
+                    newlines = '';
+                    type = this.lexer.advance();
+                    break;
+            }
+        }
+
+        if (subText.length === 0) return;
+
+        return new StringNode(
+            new TextRange(start, this.createStartPostion()),
+            subText
+        );
+    }
+
     private whitespace() {
         let type = this.lexer.peek();
         while (type === TokenType.Space || type === TokenType.NewLine) {
@@ -265,17 +316,44 @@ export class Parser {
         const start = this.createStartPostion();
 
         let type = this.lexer.peek();
-        while (
-            type === TokenType.Text ||
-            type === TokenType.Dot ||
-            type === TokenType.GreaterThan ||
-            type === TokenType.Equal
-        ) {
-            subStr += this.lexer.getText();
-            type = this.lexer.advance();
+        let groupStart: TextPosition | undefined;
+        infiniteLoop: while (true) {
+            switch (type) {
+                case TokenType.Space:
+                    if (groupStart)
+                        break infiniteLoop;
+
+                case TokenType.Text:
+                case TokenType.Dot:
+                    subStr += this.lexer.getText();
+                    type = this.lexer.advance();
+                    break;
+
+                case TokenType.LeftParen:
+                    if (!groupStart)
+                        groupStart = this.createStartPostion();
+                    else
+                        subStr += this.lexer.getText();
+                    type = this.lexer.advance();
+                    break;
+
+                case TokenType.RightParen:
+                    if (groupStart)
+                        groupStart = undefined;
+                    else
+                        subStr += this.lexer.getText();
+                    type = this.lexer.advance();
+                    break;
+
+                default:
+                    break infiniteLoop;
+            }
         }
 
         const end = this.createStartPostion();
+
+        if (groupStart)
+            this.createError('Missing ")"', new TextRange(groupStart, end));
 
         if (subStr.length > 0) {
             if (isNaN(+subStr))
@@ -289,5 +367,6 @@ export class Parser {
                     +subStr
                 );
         }
+        return;
     }
 }

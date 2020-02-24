@@ -1,11 +1,13 @@
 import { LangError } from "./LangError";
-import { AllNodes, ArgsNode, ConcatNode, EvalNode, EvalOperator, IdentityNode, NodeType, NumberNode, ResultsNode, RetrieveNode, StringNode, TextNodes } from "./Node";
+import { AllNodes, ArgsNode, ConcatNode, EvalNode, IdentityNode, NodeType, NumberNode, ResultsNode, RetrieveNode, StringNode, TextNodes } from "./Node";
 import { Product } from "./Product";
 import { TextRange } from "./TextRange";
 
 interface FunctionInfo {
-    argResultValidator?: (args: (string | number)[], results: string[]) => string | undefined;
-    toCode?: (args: (string | number)[], results: string[]) => string;
+    argResultValidator?: ((args: (string | number)[], results: string[]) => string | undefined)[];
+    toCode?: (identifier: string, args: (string | number)[], results: string[]) => string;
+    includeResults?: boolean;
+    mapArgsCallbacks?: ((args: string) => string)[];
 }
 
 interface RetrieveObj {
@@ -16,6 +18,7 @@ interface RetrieveObj {
 }
 
 const escapePairs: [RegExp, string][] = [[/\n/g, '\\n'], [/'/g, '\\\''], [/"/g, '\\"']];
+const FUNC_INFO_STRING = '__info';
 
 export class Interpreter {
     private errors: LangError[] = [];
@@ -39,7 +42,7 @@ export class Interpreter {
     }
 
     private createError(range: TextRange, msg: string) {
-        this.errors.push(new LangError(range, msg));
+        this.errors.push(new LangError(msg, range));
     }
 
     public interpret(node: TextNodes, globals: Record<string, any>) {
@@ -47,7 +50,7 @@ export class Interpreter {
         this.globals = globals;
         let output;
         try {
-            output = this.processNode(node);
+            output = this.processNode(node) as Product<string, TextRange | TextRange[]>;
         }
         catch (err) {
             this.createError(node.range, err);
@@ -59,7 +62,7 @@ export class Interpreter {
             };
         }
         return {
-            result: output.value as string,
+            result: output.value,
             ranges: (Array.isArray(output.range) ? output.range : [output.range]),
             code: output.code,
             errors: this.errors
@@ -79,7 +82,7 @@ export class Interpreter {
         }
     }
 
-    private evalStringNode(node: StringNode): Product<string> {
+    private evalStringNode(node: StringNode): Product<string, TextRange> {
         return new Product(
             node.range,
             node.value,
@@ -87,7 +90,7 @@ export class Interpreter {
         );
     }
 
-    private evalNumberNode(node: NumberNode): Product<number> {
+    private evalNumberNode(node: NumberNode): Product<number, TextRange> {
         return new Product(
             node.range,
             node.value,
@@ -95,7 +98,7 @@ export class Interpreter {
         );
     }
 
-    private evalIdentityNode(node: IdentityNode): Product<string> {
+    private evalIdentityNode(node: IdentityNode): Product<string, TextRange> {
         return new Product(
             node.range,
             node.value,
@@ -103,21 +106,29 @@ export class Interpreter {
         );
     }
 
-    private evalConcatNode(node: ConcatNode): Product<string> {
-        const values = node.children.map((child) => this.processNode(child));
-        const ranges = [];
-        for (const child of values)
+    private evalConcatNode(node: ConcatNode): Product<string, TextRange[]> {
+        const products = node.children.map((child) => this.processNode(child) as Product<string, TextRange | TextRange[]>);
+
+        const ranges: TextRange[] = [];
+        for (const child of products)
             if (Array.isArray(child.range))
                 ranges.push(...child.range);
             else
                 ranges.push(child.range);
 
+        console.log(ranges);
         let valueStr = '';
         let codeStr = '';
-        for (let idx = 0; idx < values.length; idx++) {
-            valueStr += values[idx].value;
-            if (idx > 0) codeStr += ' + ';
-            codeStr += values[idx].code;
+        for (const product of products) {
+            valueStr += product.value;
+            if (codeStr.charAt(codeStr.length - 1) == '"' && product.code.charAt(0) == '"') {
+                codeStr = codeStr.slice(0, codeStr.length - 1) + product.code.slice(1);
+            }
+            else {
+                if (codeStr.length > 0)
+                    codeStr += ' + ';
+                codeStr += product.code;
+            }
         }
 
         return new Product(
@@ -127,47 +138,61 @@ export class Interpreter {
         );
     }
 
-    private evalRetrieveNode(node: RetrieveNode): Product<RetrieveObj> {
-        const values = node.children.map((child) => this.processNode(child) as Product<string>);
+    private evalRetrieveNode(node: RetrieveNode): Product<RetrieveObj, TextRange> {
+        const values = node.children.map((child) => this.processNode(child) as Product<string, TextRange>);
         let obj = this.globals;
         let name = '';
+        let codeStr = '';
 
         let infoObj;
         let identity;
         let selfObj;
-        const caps = false;
+        let caps = false;
+        let lowerCaseIdentity;
         for (let idx = 0; idx < values.length; idx++) {
             identity = values[idx].value;
 
             // Determine if capitalization is needed
-            // if (identity.charAt(0).toLocaleUpperCase() === identity.charAt(0)) {
-            //     caps = true;
-            //     identity = identity.charAt(0).toLocaleLowerCase() + identity.slice(1);
-            // }
+            if (idx == values.length - 1) {
+                lowerCaseIdentity = identity.charAt(0).toLocaleLowerCase() + identity.slice(1);
+                if (!(identity in obj) && lowerCaseIdentity in obj) {
+                    caps = true;
+                    identity = lowerCaseIdentity;
+                }
+            }
 
+            // Error check
             if (typeof obj !== 'object' || !(identity in obj)) {
                 this.createError(
                     node.range,
                     `"${identity}" does not exist${name ? ` in "${name}"` : ''}`
                 );
-                return new Product<RetrieveObj>(
+                return new Product(
                     node.range,
                     {},
                     ''
                 );
             }
 
-            if (idx === values.length - 1 && (identity + '__info') in obj) {
-                infoObj = obj[identity + '__info'];
+            // Check for <name>__info
+            if (idx === values.length - 1 && (identity + FUNC_INFO_STRING) in obj) {
+                infoObj = obj[identity + FUNC_INFO_STRING];
             }
 
             selfObj = obj;
             obj = obj[identity];
-            if (name.length > 0) name += '.';
+            if (name.length > 0) {
+                name += '.';
+                codeStr += '.';
+            }
             name += identity;
+            if (idx === values.length - 1 && infoObj && infoObj.identityOverride)
+                codeStr += infoObj.identityOverride;
+            else
+                codeStr += identity + (typeof obj === 'function' ? '()' : '');
         }
 
-        return new Product<RetrieveObj>(
+        return new Product(
             node.range,
             {
                 value: obj,
@@ -175,131 +200,158 @@ export class Interpreter {
                 caps,
                 info: infoObj
             },
-            name
+            codeStr
         );
     }
 
-    private evalArgsNode(node: ArgsNode): Product<(Product<string> | Product<number>)[]> {
+    private evalArgsNode(node: ArgsNode): Product<(Product<string, TextRange> | Product<number, TextRange>)[], TextRange> {
         return new Product(
             node.range,
-            node.children.map((child) => this.processNode(child)) as (Product<string> | Product<number>)[],
+            node.children.map((child) => this.processNode(child)) as (Product<string, TextRange> | Product<number, TextRange>)[],
             ''
         );
     }
 
-    private evalResultsNode(node: ResultsNode): Product<(Product<string>)[]> {
+    private evalResultsNode(node: ResultsNode): Product<(Product<string, TextRange | TextRange[]>)[], TextRange> {
         return new Product(
             node.range,
-            node.children.map((child) => this.processNode(child)) as (Product<string>)[],
+            node.children.map((child) => this.processNode(child)) as (Product<string, TextRange | TextRange[]>)[],
             ''
         );
     }
 
-    private evalEvalNode(node: EvalNode): Product<string> {
-        let errorMsg;
+    private evalEvalNode(node: EvalNode): Product<string, TextRange | TextRange[]> {
+        // Error checking
+        let errorStart = this.errors.length;
         if (node.children.length !== 3) {
-            errorMsg = 'incorrect amount of children for EvalNode';
+            this.createError(node.range, 'incorrect amount of children for EvalNode');
         }
         else if (node.children[0].type !== NodeType.Retrieve) {
-            errorMsg = 'EvalNode children[0] was not a RetrieveNode';
+            this.createError(node.range, 'EvalNode children[0] was not a RetrieveNode');
         }
         else if (node.children[1].type !== NodeType.Args) {
-            errorMsg = 'EvalNode children[1] was not a ArgsNode';
+            this.createError(node.range, 'EvalNode children[1] was not a ArgsNode');
         }
         else if (node.children[2].type !== NodeType.Results) {
-            errorMsg = 'EvalNode children[1] was not a ResultsNode';
+            this.createError(node.range, 'EvalNode children[1] was not a ResultsNode');
         }
 
-        // Error checking
-        if (errorMsg) {
-            this.createError(node.range, errorMsg);
-            return new Product(node.range, '', '');
-        }
+        if (errorStart !== this.errors.length)
+            return new Product(new TextRange(node.range.start, node.range.start), '', '');
 
-        switch (node.value) {
-            case EvalOperator.Range:
-                return this.evalRangeOp(node);
-            case EvalOperator.Equal:
-                return this.evalEqualOp(node);
-            default:
-                return this.evalDefaultOp(node);
-        }
-
-    }
-
-    private evalDefaultOp(node: EvalNode): Product<string> {
         const retrieve = this.evalRetrieveNode(node.children[0]);
         const args = this.evalArgsNode(node.children[1]);
         const results = this.evalResultsNode(node.children[2]);
 
+        if (!('value' in retrieve.value))
+            return new Product(new TextRange(node.range.start, node.range.start), '', '');
+
+        const identifier = this.getName(node.children[0]);
+
         const argsValueArr = args.value.map((child) => child.value);
-        const argsCodeArr = args.value.map((child) => child.code);
+        let argsCodeArr = args.value.map((child) => child.code);
 
         const resultsValueArr = results.value.map((child) => child.value);
         const resultsCodeArr = results.value.map((child) => child.code);
 
-        // Error checking
-        let errorMsg;
-        if (typeof retrieve.value.value === 'function' && retrieve.value.info) {
-            if (retrieve.value.info.argResultValidator) {
-                const validResult = retrieve.value.info.argResultValidator(argsValueArr, resultsValueArr);
-                if (validResult != null) {
-                    errorMsg = '"' + this.getName(node.children[0]) + '" ' + validResult;
+        let resultValue = retrieve.value.value;
+
+        if (typeof resultValue === 'function') {
+            // Error checking
+            errorStart = this.errors.length;
+
+            // Validate args and results
+            if (retrieve.value.info && retrieve.value.info.argResultValidator) {
+                for (const validator of retrieve.value.info.argResultValidator) {
+                    const validResult = validator(argsValueArr, resultsValueArr);
+                    if (validResult != null) {
+                        this.createError(node.range, '"' + identifier + '" ' + validResult);
+                        break;
+                    }
                 }
             }
-        }
-        else if (typeof retrieve.value.value === 'boolean') {
-            if (resultsValueArr.length == 0) {
-                errorMsg = this.getName(node.children[0]) + ' needs at least 1 result';
+            // No args or results if no validator
+            else {
+                if (argsValueArr.length > 0)
+                    this.createError(args.range, identifier + ' does not use arguments');
+                if (resultsValueArr.length > 0)
+                    this.createError(results.range, identifier + ' does not use results');
             }
-            else if (resultsValueArr.length > 2) {
-                errorMsg = this.getName(node.children[0]) + ' can have up to 2 results';
+
+            // Return on error
+            if (errorStart !== this.errors.length)
+                return new Product(new TextRange(node.range.start, node.range.start), '', '');
+
+            // Evaluate
+            if (retrieve.value.info && retrieve.value.info.includeResults)
+                resultValue = resultValue.call(retrieve.value.self, argsValueArr, resultsValueArr);
+            else
+                resultValue = resultValue.apply(retrieve.value.self, argsValueArr);
+
+            if (resultValue == null) {
+                this.createError(node.range, identifier + ' is ' + resultValue);
+                return new Product(new TextRange(node.range.start, node.range.start), '', '');
             }
         }
-        else if (typeof retrieve.value.value === 'object' || retrieve.value.value == null) {
-            errorMsg = this.getName(node.children[0]) + ' cannot be displayed';
+
+        // Error checking
+        errorStart = this.errors.length;
+        switch (typeof resultValue) {
+            case 'boolean': {
+                if (resultsValueArr.length == 0) {
+                    this.createError(node.range, identifier + ' needs at least 1 result');
+                }
+                else if (resultsValueArr.length > 2) {
+                    this.createError(node.range, identifier + ' has ' + (resultsValueArr.length - 2) + ' results than needed');
+                }
+                break;
+            }
+            case 'object': {
+                this.createError(node.range, identifier + ' cannot be displayed');
+                break;
+            }
         }
-        if (errorMsg) {
-            this.createError(node.range, errorMsg);
-            return new Product(node.range, '', '');
+        if (errorStart !== this.errors.length) {
+            return new Product(new TextRange(node.range.start, node.range.start), '', '');
         }
 
         let returnValue = '';
         let returnRange: TextRange | TextRange[] = node.range;
         let returnCode = '';
-        if (typeof retrieve.value.value === 'function') {
-            const funcResult = retrieve.value.value.apply(retrieve.value.self, argsValueArr.concat(resultsValueArr));
-            // Handle selecting from results here
-            if (typeof funcResult === 'object' && 'selector' in funcResult && results.value[funcResult.selector]) {
-                returnValue = results.value[funcResult.selector].value;
-                returnRange = results.value[funcResult.selector].range;
+
+        if (typeof resultValue === 'number') {
+            // Evaluate
+            if (results.value.length > 0 && results.value[resultValue]) {
+                returnValue = results.value[resultValue].value;
+                returnRange = results.value[resultValue].range;
             }
             else {
-                returnValue = funcResult + '';
-                returnRange = node.range;
+                returnValue = "";
+                returnRange = new TextRange(node.range.end, node.range.end);
             }
 
-            // nothing              -> identity()
-            // args + results       -> identity([arg0, arg1, ...], [result0, result1, ...])
-            // args                 -> identity(arg0, arg1, ...)
-            // results              -> identity(result0, result1, ...)
-            if (argsCodeArr.length === 0 && resultsCodeArr.length === 0)
-                returnCode = retrieve.code + '()';
-            else if (argsCodeArr.length > 0 && resultsCodeArr.length > 0)
-                returnCode = retrieve.code + '([' + argsCodeArr.join(', ') + '], [' + resultsCodeArr.join(', ') + '])';
-            else if (argsCodeArr.length > 0)
-                returnCode = retrieve.code + '(' + argsCodeArr.join(', ') + ')';
-            else
-                returnCode = retrieve.code + '(' + resultsCodeArr.join(', ') + ')';
+            // To Code
+            for (let idx = 0; idx < resultsCodeArr.length; idx++) {
+                returnCode += '(' + retrieve.code + ' == ' + idx + ' ? ';
+                if (idx < resultsCodeArr.length)
+                    returnCode += resultsCodeArr[idx];
+                else
+                    returnCode += '""';
+                returnCode += ' : ';
+                if (idx + 1 === resultsCodeArr.length)
+                    returnCode += '""';
+            }
+            returnCode += ')'.repeat(resultsCodeArr.length);
         }
-        else if (typeof retrieve.value.value === 'boolean') {
+        else if (typeof resultValue === 'boolean') {
+            // Evaluate
             // condition ? [result1] : result2
-            if (retrieve.value.value && results.value.length > 0 && results.value[0]) {
+            if (resultValue && results.value.length > 0 && results.value[0]) {
                 returnValue = results.value[0].value;
                 returnRange = results.value[0].range;
             }
             // condition ? result1 : [result2]
-            else if (!retrieve.value.value && results.value.length > 1 && results.value[1]) {
+            else if (!resultValue && results.value.length > 1 && results.value[1]) {
                 returnValue = results.value[1].value;
                 returnRange = results.value[1].range;
             }
@@ -310,6 +362,7 @@ export class Interpreter {
                 returnRange = node.range;
             }
 
+            // To Code
             // type bool + results  -> identity ? result0 : (result1 or "")
             if (resultsCodeArr.length === 1)
                 returnCode = '(' + retrieve.code + ' ? ' + resultsCodeArr[0] + ' : "")';
@@ -317,13 +370,16 @@ export class Interpreter {
                 returnCode = '(' + retrieve.code + ' ? ' + resultsCodeArr[0] + ' : ' + resultsCodeArr[1] + ')';
         }
         else {
-            returnValue = retrieve.value.value + '';
+            returnValue = resultValue + '';
             returnRange = node.range;
             returnCode = retrieve.code;
         }
 
         if (retrieve.value.info && retrieve.value.info.toCode) {
-            returnCode = retrieve.value.info.toCode(argsCodeArr, resultsCodeArr);
+            if (retrieve.value.info.mapArgsCallbacks)
+                for (const preprocessor of retrieve.value.info.mapArgsCallbacks)
+                    argsCodeArr = argsCodeArr.map(preprocessor);
+            returnCode = retrieve.value.info.toCode(retrieve.code, argsCodeArr, resultsCodeArr);
         }
 
         if (retrieve.value.caps && returnValue.length > 0) {
@@ -332,155 +388,4 @@ export class Interpreter {
 
         return new Product(returnRange, returnValue + '', returnCode);
     }
-
-    private evalRangeOp(node: EvalNode): Product<string> {
-        const retrieve = this.evalRetrieveNode(node.children[0]);
-        const args = this.evalArgsNode(node.children[1]);
-        const results = this.evalResultsNode(node.children[2]);
-
-        const argsValueArr = args.value.map((child) => child.value);
-        const argsCodeArr = args.value.map((child) => child.code);
-
-        const resultsValueArr = results.value.map((child) => child.value);
-        const resultsCodeArr = results.value.map((child) => child.code);
-
-        // Error checking
-        let errorMsg;
-        if (typeof retrieve.value.value === 'number') {
-            if (argsValueArr.length === 0) {
-                errorMsg = this.getName(node.children[0]) + ' needs at least one argument';
-            }
-            else if (resultsValueArr.length === 0) {
-                errorMsg = this.getName(node.children[0]) + ' needs at least one result';
-            }
-            else if (resultsValueArr.length > argsValueArr.length + 1) {
-                errorMsg = this.getName(node.children[0]) + ' has ' + (resultsValueArr.length - argsValueArr.length + 1) + ' extraneous results';
-            }
-        }
-        else {
-            errorMsg = this.getName(node.children[0]) + ' does not support ">"';
-        }
-        if (errorMsg) {
-            this.createError(node.range, errorMsg);
-            return new Product(node.range, '', '');
-        }
-
-        let returnValue = '';
-        let returnRange: TextRange | TextRange[] = node.range;
-        let returnCode = '';
-        if (typeof retrieve.value.value === 'number') {
-            for (let idx = 0; idx < argsValueArr.length && idx < resultsValueArr.length; idx++) {
-                if (argsValueArr[idx] <= retrieve.value.value && (
-                    idx === argsValueArr.length - 1 ||
-                    retrieve.value.value < argsValueArr[idx + 1]
-                )) {
-                    returnValue = results.value[idx].value;
-                    returnRange = results.value[idx].range;
-                    break;
-                }
-            }
-            for (let idx = 0; idx < argsValueArr.length; idx++) {
-                returnCode += '(' + argsCodeArr[idx] + ' <= ' + retrieve.code;
-                if (idx + 1 < argsValueArr.length) {
-                    returnCode += ' && ' + retrieve.code + ' < ' + argsCodeArr[idx + 1];
-                }
-                returnCode += ' ? ';
-                if (idx < resultsCodeArr.length)
-                    returnCode += resultsCodeArr[idx];
-                else
-                    returnCode += '""';
-                returnCode += ' : ';
-                if (idx + 1 === argsValueArr.length)
-                    returnCode += '""';
-            }
-            returnCode += ')'.repeat(argsValueArr.length);
-        }
-        else {
-            returnValue = retrieve.value.value + '';
-            returnRange = node.range;
-            returnCode = retrieve.code;
-        }
-
-        if (retrieve.value.info && retrieve.value.info.toCode) {
-            returnCode = retrieve.value.info.toCode(argsCodeArr, resultsCodeArr);
-        }
-
-        return new Product(returnRange, returnValue + '', returnCode);
-    }
-
-    private evalEqualOp(node: EvalNode): Product<string> {
-        const retrieve = this.evalRetrieveNode(node.children[0]);
-        const args = this.evalArgsNode(node.children[1]);
-        const results = this.evalResultsNode(node.children[2]);
-
-        const argsValueArr = args.value.map((child) => child.value);
-        const argsCodeArr = args.value.map((child) => child.code);
-
-        const resultsValueArr = results.value.map((child) => child.value);
-        const resultsCodeArr = results.value.map((child) => child.code);
-
-        // Error checking
-        let errorMsg;
-        if (args.value.length !== 1) {
-            errorMsg = this.getName(node.children[0]) + ' can only accept 1 argument';
-        }
-        else if (resultsValueArr.length == 0) {
-            errorMsg = this.getName(node.children[0]) + ' needs at least 1 result';
-        }
-        else if (resultsValueArr.length > 2) {
-            errorMsg = this.getName(node.children[0]) + ' can have up to 2 results';
-        }
-        else if (
-            typeof retrieve.value.value !== 'boolean' &&
-            typeof retrieve.value.value !== 'number' &&
-            typeof retrieve.value.value !== 'string'
-        ) {
-            errorMsg = this.getName(node.children[0]) + ' does not support "="';
-        }
-        if (errorMsg) {
-            this.createError(node.range, errorMsg);
-            return new Product(node.range, '', '');
-        }
-
-        let arg: string | number | boolean = args.value[0].value;
-        if (arg === 'true') arg = true;
-        if (arg === 'false') arg = false;
-
-        let returnValue = '';
-        let returnRange: TextRange | TextRange[] = node.range;
-        let returnCode = '';
-        // condition ? [result1] : result2
-        if (retrieve.value.value === arg && results.value.length > 0 && results.value[0]) {
-            returnValue = results.value[0].value;
-            returnRange = results.value[0].range;
-        }
-        // condition ? result1 : [result2]
-        else if (retrieve.value.value !== arg && results.value.length > 1 && results.value[1]) {
-            returnValue = results.value[1].value;
-            returnRange = results.value[1].range;
-        }
-        // condition ? result1 : []
-        // condition ? [] : result2
-        else {
-            returnValue = '';
-            returnRange = node.range;
-        }
-
-        // type bool + results  -> identity ? result0 : (result1 or "")
-        if (resultsCodeArr.length === 1)
-            returnCode = '(' + retrieve.code + ' === ' + argsCodeArr[0] + ' ? ' + resultsCodeArr[0] + ' : "")';
-        if (resultsCodeArr.length === 2)
-            returnCode = '(' + retrieve.code + ' === ' + argsCodeArr[0] + ' ? ' + resultsCodeArr[0] + ' : ' + resultsCodeArr[1] + ')';
-
-        if (retrieve.value.info && retrieve.value.info.toCode) {
-            returnCode = retrieve.value.info.toCode(argsCodeArr, resultsCodeArr);
-        }
-
-        if (retrieve.value.caps && returnValue.length > 0) {
-            returnValue = returnValue.charAt(0).toLocaleUpperCase() + returnValue.slice(1);
-        }
-
-        return new Product(returnRange, returnValue + '', returnCode);
-    }
-
 }

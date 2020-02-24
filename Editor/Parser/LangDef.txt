@@ -31,12 +31,14 @@ Whitespace =    Space | Tab | Newline
 
 Concat = { Newline | Code | Text | Concat }
 
-Code = BracketOpen , Access , [ Arguments ] , [ Results ] , BracketClose
+Code = BracketOpen , Identifier , [ Arguments ] , Indentation , [ Results ] , BracketClose
 
-Access = { Whitespace } , Identity , { Dot , Identity }
+Identifier = { Whitespace } , Identity , { Dot , Identity }
 
-Arguments = { Whitespace , { Whitespace } , Value }
+Arguments = { Space | Tab , { Space | Tab } , Value }
 
-Results = { Pipe , { Whitespace } , [ ResultConcat ] , { Whitespace } }
+Indentation = { Whitespace }
+
+Results = { Pipe , [ ResultConcat ] , { Whitespace } }
 
 ResultConcat = { Newline | Code | Text | ResultConcat }

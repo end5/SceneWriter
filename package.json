@@ -10,7 +10,7 @@
   "license": "ISC",
   "dependencies": {
     "@types/codemirror": "0.0.80",
-    "codemirror": "^5.49.2",
+    "codemirror": "^5.58.2",
     "rollup": "^1.27.4",
     "tslint": "^5.20.1",
     "typescript": "^3.7.2"
